@@ -47,8 +47,7 @@ final class ChatState: ObservableObject {
         do {
             try store.recoverInterruptedRuns()
             skills = try ChatSkill.load()
-            try reload()
-            if let first = conversations.first { select(first) }
+            try reload()                                  // 처음엔 최근 대화가 아니라 새 대화(홈)로 시작
         } catch { self.error = error.localizedDescription }
         refreshFocusChoices()
     }
