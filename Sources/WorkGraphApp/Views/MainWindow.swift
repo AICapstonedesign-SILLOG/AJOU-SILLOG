@@ -18,7 +18,10 @@ struct NavRail: View {
 
     private func railTab(_ tab: MainWindow.Tab) -> some View {
         let on = state.selectedTab == tab
-        return Button { state.selectedTab = tab } label: {
+        return Button {
+            if tab == .chat, state.selectedTab != .chat { state.chat?.newConversation() }   // 다른 탭에서 채팅으로 오면 홈(새 대화)
+            state.selectedTab = tab
+        } label: {
             VStack(spacing: 4) {
                 SVGIcon(d: icon(tab))
                     .stroke(Brand.tabText, style: StrokeStyle(lineWidth: on ? 1.8 : 1.5, lineCap: .round, lineJoin: .round))
