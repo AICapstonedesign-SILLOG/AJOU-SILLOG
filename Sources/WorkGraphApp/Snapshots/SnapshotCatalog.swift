@@ -5,7 +5,7 @@ import WorkGraphCore
 /// 스냅샷으로 그릴 화면 목록. 이름은 Figma 화면 번호를 따른다 (Figma 에서 내보낸 같은 이름의 PNG 와 나란히 본다)
 @MainActor
 enum SnapshotCatalog {
-    static var all: [Snapshot] { menus + windows + activity + chat + storage + [mathAnswer] + recording }
+    static var all: [Snapshot] { menus + windows + activity + chat + library + storage + [mathAnswer] + recording }
 
     /// Figma 창(760) 에서 제목 줄(44)을 뺀 내용 영역
     static let window = CGSize(width: 1180, height: 716)
@@ -114,6 +114,18 @@ enum SnapshotCatalog {
                 s.phase = .ready; s.status = collector(); s.taskList = recentTasks
                 s.selectedTab = .settings; s.settingsSection = .ai
             },
+            shot("ST-AI-AJOU", MainWindow(), size: window) { s in
+                s.phase = .ready; s.status = collector(); s.taskList = recentTasks
+                s.settings.llmProvider = "ajou"; s.settings.chatProvider = "ajou"; s.settings.ajouModel = "gpt-6-luna"; s.settings.chatAjouModel = "my-custom-model"
+                s.llmTestResult = "연결됨. gpt-6-luna 응답 정상 (입력 131 / 출력 17 토큰)"
+                s.selectedTab = .settings; s.settingsSection = .ai
+            },
+            shot("ST-AI-FAIL", MainWindow(), size: window) { s in
+                s.phase = .ready; s.status = collector(); s.taskList = recentTasks
+                s.settings.llmProvider = "openai"; s.settings.chatProvider = "openai"
+                s.llmTestResult = "서버에 연결할 수 없습니다. 서버가 켜져 있는지 확인하세요."
+                s.selectedTab = .settings; s.settingsSection = .ai
+            },
             // 설정의 활동 로그: 대기와 정리 묶음을 한 줄기로
             shot("LG-01", MainWindow(), size: window) { s in
                 s.phase = .ready; s.status = collector(); s.taskList = recentTasks
@@ -146,6 +158,54 @@ enum SnapshotCatalog {
         """#
         let view = ChatMessageText(text: answer, sources: [], onSource: { _ in }).frame(width: 640).padding(24).background(Color.white)
         return Snapshot(name: "CH-math", size: CGSize(width: 688, height: 420), view: AnyView(view.environmentObject(AppState(preview: { _ in }))))
+    }
+
+    /// 기록 자료 보관함: 홈과 종류별 화면 (Figma LB-25, 04, 06, 16, 17, 18). 내 보관함과 같은 개수(결과물 2, 녹음 7)로 그린다
+    static var library: [Snapshot] {
+        guard let database = try? WGDatabase.inMemory() else { return [] }
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("sillog-lb-snapshot", isDirectory: true)
+        let store = LibraryStore(database, directory: dir)
+        let state = AppState(preview: { s in
+            s.phase = .ready; s.status = collector(); s.selectedTab = .records
+            let now = Date().timeIntervalSince1970
+            for var r in [
+                Recording(id: 7, startedAt: now - 3_600, endedAt: now - 3_597, duration: 3, audioPath: "", status: .failed),
+                Recording(id: 6, startedAt: now - 3_700, endedAt: now - 3_700, duration: 0, audioPath: "", status: .failed),
+                Recording(id: 5, startedAt: now - 3_800, endedAt: now - 3_800, duration: 0, audioPath: "", status: .failed),
+                Recording(id: 4, startedAt: now - 86_400, endedAt: now - 86_394, duration: 6, audioPath: "", title: "마켓 산업 전반의 베이스라인 모델", transcript: "내용", status: .ready),
+                Recording(id: 3, startedAt: now - 90_000, endedAt: now - 89_939, duration: 61, audioPath: "", title: "여러 개에 관한 짧은 메모", transcript: "내용", status: .ready),
+                Recording(id: 2, startedAt: now - 3 * 86_400, endedAt: now - 3 * 86_400 + 11, duration: 11, audioPath: "", title: "녹음 연습", transcript: "내용", status: .ready),
+                Recording(id: 1, startedAt: now - 4 * 86_400, endedAt: now - 4 * 86_400 + 13, duration: 13, audioPath: "", status: .ready),
+            ] { r.id = nil; _ = try? RecordingStore(database).insert(r) }
+        }, database: database)
+        let library = LibraryState(db: database)
+        var one = ChatLibraryItem(title: "실록 정리본", filename: "실록 정리본.html", kind: "generated"); one.createdAt = Date().timeIntervalSince1970 - 27 * 86_400
+        var two = ChatLibraryItem(title: "실록 — 2026.09.28", filename: "실록 — 2026.09.28.html", kind: "generated"); two.createdAt = one.createdAt
+        library.items = [one, two]
+        for item in library.items {
+            let url = LibraryStore(database, directory: dir).url(for: item)
+            try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? "<h1>\(item.title)</h1><p>정리한 내용입니다.</p>".write(to: url, atomically: true, encoding: .utf8)
+        }
+        _ = store
+        // 업로드와 저장한 답변은 내 보관함에 0개라 목록 모양을 볼 예시를 따로 둔다 (Figma LB-16, LB-18)
+        let filled = LibraryState(db: database)
+        let day = 86_400.0, now = Date().timeIntervalSince1970
+        func make(_ title: String, _ file: String, _ kind: String, _ ago: Double, _ body: String) -> ChatLibraryItem {
+            var item = ChatLibraryItem(title: title, filename: file, kind: kind); item.createdAt = now - ago * day
+            let url = filled.store.url(for: item)
+            try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? body.write(to: url, atomically: true, encoding: .utf8)
+            return item
+        }
+        filled.items = [make("경제사 기말 범위.pdf", "경제사 기말 범위.pdf", "upload", 4, "x"), make("캡스톤 회의록.docx", "캡스톤 회의록.docx", "upload", 11, "x"),
+                        make("경제사 기말 범위 정리", "정리.md", "note", 2, "# 경제사 기말 범위 정리\n산업혁명과 대공황의 원인을 정리한 답변입니다."),
+                        make("AI리터러시 오답 정리", "오답.md", "note", 5, "프롬프트 작성 오답을 모은 답변입니다.")]
+        return ["home", "", "recording", "upload", "generated", "note"].map { kind in
+            Snapshot(name: "LB-\(kind.isEmpty ? "all" : kind)", size: window, view: AnyView(LibraryView(library: library, initialKind: kind).environmentObject(state)))
+        } + ["upload", "note"].map { kind in
+            Snapshot(name: "LB-\(kind)-data", size: window, view: AnyView(LibraryView(library: filled, initialKind: kind).environmentObject(state)))
+        }
     }
 
     /// 채팅: 머리의 모델 칩 (누르면 그 자리에서 채팅 모델을 고른다)

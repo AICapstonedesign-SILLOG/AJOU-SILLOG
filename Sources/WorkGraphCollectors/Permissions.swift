@@ -12,6 +12,7 @@ public enum Permissions {
         case filesAndFolders = "Privacy_FilesAndFolders"
         case microphone = "Privacy_Microphone"
         case speechRecognition = "Privacy_SpeechRecognition"
+        case calendars = "Privacy_Calendars"
     }
 
     /// 손쉬운 사용(접근성): 창 제목, URL, 문서 경로, 화면 텍스트에 필요.

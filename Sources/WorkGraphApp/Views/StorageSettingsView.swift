@@ -19,7 +19,7 @@ struct StorageSettingsView: View {
         .sheet(item: $state.cleanupPreview) { preview in CleanupPreviewSheet(preview: preview).environmentObject(state) }
     }
 
-    static let barColor = Color(hex: 0x5E97C8)   // 켜짐 표시와 같은 파랑
+    static let barColor = Brand.blue   // 켜짐 표시와 같은 파랑
 
     static func size(_ bytes: Int64) -> String { ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file) }
 
@@ -152,7 +152,7 @@ struct StorageSettingsView: View {
                     .frame(width: 40)
                 Text("일").font(Brand.suit(11)).foregroundStyle(Brand.text).padding(.leading, 6)
             }
-            .brandField(height: 33)
+            .settingField()
             .frame(width: 88)
             Text(verbatim: "\(range.lowerBound)~\(range.upperBound)일").font(Brand.suit(10)).foregroundStyle(Brand.gray)
                 .lineLimit(1).fixedSize().frame(width: 62, alignment: .leading)
@@ -291,7 +291,7 @@ struct CleanupPreviewSheet: View {
                 }
             }
             .padding(.horizontal, 24).frame(height: 63)
-            .background(Color(hex: 0xF6F5F4))
+            .background(Brand.paper)
         }
         .frame(width: 560)
         .background(.white)

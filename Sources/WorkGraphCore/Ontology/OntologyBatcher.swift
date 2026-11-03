@@ -40,6 +40,8 @@ public actor OntologyBatcher {
     private let db: WGDatabase
     private let store: EventStore
     private var llm: any LLMClient
+    /// 판단 모델(Jev). 있으면 ② 업무 대입에서 행을 기존 업무에 붙일지 새 업무로 볼지 먼저 고른다 (없으면 LLM 이 모두 한다)
+    private var jevClient: (any JevChoosing)?
     private var config: BatchConfig
     private let home: String
     private let fileExists: @Sendable (String) -> Bool
@@ -61,6 +63,11 @@ public actor OntologyBatcher {
     public func setLLM(_ client: any LLMClient) {
         llm = client
         failures = 0; nextAllowedAt = 0
+    }
+
+    /// 판단 모델 연결. nil 이면 쓰지 않는다
+    public func setJudge(_ endpoint: JevEndpoint?) {
+        jevClient = endpoint.map { JevClient(endpoint: $0) as any JevChoosing }
     }
 
     public func runIfDue(force: Bool) async -> BatchOutcome {
@@ -248,7 +255,7 @@ public actor OntologyBatcher {
             return Judgment(single: result, prompt: prompt)
         case .staged:
             do {
-                let (patch, calls) = try await StagedPipeline.run(JudgeInput(rows: rows, openTasks: openTasks, cards: cards, now: now), llm: llm)
+                let (patch, calls) = try await StagedPipeline.run(JudgeInput(rows: rows, openTasks: openTasks, cards: cards, now: now, judge: jevClient), llm: llm)
                 return Judgment(patch: patch, calls: calls, failure: nil, fallbackModel: llm.modelName)
             } catch let error as PipelineError {
                 return Judgment(patch: nil, calls: error.calls, failure: error.description, fallbackModel: llm.modelName)

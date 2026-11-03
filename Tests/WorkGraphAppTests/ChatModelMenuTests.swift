@@ -25,7 +25,7 @@ final class ChatModelMenuTests: XCTestCase {
         let database = try WGDatabase.inMemory()
         let state = AppState(preview: { s in
             s.phase = .ready; s.selectedTab = .chat
-            s.settings.chatProvider = "codex"; s.settings.chatCodexModel = "gpt-6-luna"; s.chatCodexModels = self.models
+            s.settings.chatSameAsOrganize = false; s.settings.chatProvider = "codex"; s.settings.chatCodexModel = "gpt-6-luna"; s.chatCodexModels = self.models
             let offline = OpenAICompatClient(baseURL: URL(string: "http://localhost:5010/v1")!, model: "preview", apiKey: nil)
             s.chat = ChatState(db: database, makeClient: { .model(offline) }, makeProjectClient: { offline })
         })

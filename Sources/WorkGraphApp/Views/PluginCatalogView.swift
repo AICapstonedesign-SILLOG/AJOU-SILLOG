@@ -37,7 +37,7 @@ struct PluginCatalogView: View {
     @State private var notice: String?
     @State private var showNotice = false
 
-    private static let soft = Color(hex: 0xF6F5F4)
+    private static let soft = Brand.paper
 
     private var selected: PluginEntry? { PluginEntry.all.first { $0.id == selectedID } }
     private var filtered: [PluginEntry] {
@@ -216,7 +216,7 @@ struct PluginCatalogView: View {
                             Text(plugin.summary).font(Brand.suit(10)).foregroundStyle(Brand.gray)
                         }
                         Spacer()
-                        Toggle("", isOn: googleBinding(plugin.id)).toggleStyle(.switch).labelsHidden().controlSize(.small)
+                        Toggle("", isOn: googleBinding(plugin.id)).toggleStyle(.switch).labelsHidden().controlSize(.small).tint(Brand.accentDark)
                     }.padding(.vertical, 16)
                         .overlay(alignment: .bottom) { Rectangle().fill(Brand.line).frame(height: 1) }
                 }

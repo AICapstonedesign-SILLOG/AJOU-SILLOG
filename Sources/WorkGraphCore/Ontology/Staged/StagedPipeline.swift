@@ -7,9 +7,12 @@ public struct JudgeInput: Sendable {
     public var cards: [Int: [ScreenCard]]
     public var now: Double
     public var timeZone: TimeZone
+    /// 판단 모델(Jev). 있으면 ② 업무 대입에서 행을 기존 업무에 붙일지 새 업무로 볼지 먼저 고르고, 확신이 낮거나 호출이 실패한 행은 LLM 이 판정한다
+    public var judge: (any JevChoosing)?
 
-    public init(rows: [ActivityRow], openTasks: [TaskDigest], cards: [Int: [ScreenCard]] = [:], now: Double, timeZone: TimeZone = .current) {
-        self.rows = rows; self.openTasks = openTasks; self.cards = cards; self.now = now; self.timeZone = timeZone
+    public init(rows: [ActivityRow], openTasks: [TaskDigest], cards: [Int: [ScreenCard]] = [:], now: Double, timeZone: TimeZone = .current,
+                judge: (any JevChoosing)? = nil) {
+        self.rows = rows; self.openTasks = openTasks; self.cards = cards; self.now = now; self.timeZone = timeZone; self.judge = judge
     }
 }
 
@@ -172,19 +175,61 @@ public enum StagedPipeline {
         return next
     }
 
-    /// ② 업무 행 중 아직 배정하지 않은 행만. 다시 물을 때 정의한 ref 는 앞 시도와 겹치지 않게 접두어를 붙인다
+    /// ② 업무 행 중 아직 배정하지 않은 행만. 다시 물을 때 정의한 ref 는 앞 시도와 겹치지 않게 접두어를 붙인다.
+    /// 판단 모델(Jev)이 있으면 첫 시도에서 먼저 고른다: 확신이 기준 이상인 행은 그 답을 쓰고 (기존 업무는 바로 배정,
+    /// 새 업무는 후보 없이 LLM 이 이름과 목표만 쓴다), 나머지와 오류는 지금처럼 LLM 이 판정한다
     public static func assign(_ state: JudgeState, _ llm: any LLMClient) async throws -> JudgeState {
         var next = state
-        let pending = state.unassigned
-        let user = StagePrompt.assign(rows: pending, openTasks: state.input.openTasks, cards: state.input.cards, now: state.input.now, timeZone: state.input.timeZone)
-        let result = try await call("assign", system: StagePrompt.assignSystem, user: user, tool: StageTool.assign, state: state, llm: llm)
+        var pending = state.unassigned
+        var fresh: [ActivityRow] = []
+        if state.assignAttempts == 0, let judge = state.input.judge, !state.input.openTasks.isEmpty {
+            let input = state.input
+            let (decisions, jevCall) = await JevAssign.decide(pending, openTasks: input.openTasks, cards: input.cards, now: input.now,
+                                                              timeZone: input.timeZone, judge: judge)
+            if let jevCall { next.calls.append(jevCall) }
+            for row in pending {
+                guard let decision = decisions[row.row] else { continue }
+                switch decision.pick {
+                case .task(let id):
+                    next.assignment.rows[row.row] = TaskChoice(task: id, reason: JevAssign.reason(decision))
+                    if !next.assignment.tasks.contains(where: { $0.ref == id }) {
+                        next.assignment.tasks.append(AssignmentPatch.TaskDef(ref: id, match: "existing", id: id))
+                    }
+                case .new:
+                    fresh.append(row)
+                }
+            }
+            pending = pending.filter { decisions[$0.row] == nil }
+        }
+        // 새 업무로 본 행: 후보 업무 없이 물어 LLM 이 새 업무를 정의하게 한다 (다시 후보에 붙이지 못한다)
+        if !fresh.isEmpty { try await ask(fresh, openTasks: [], prefix: "j-", into: &next, llm: llm) }
+        if !pending.isEmpty {
+            try await ask(pending, openTasks: state.input.openTasks, prefix: state.assignAttempts == 0 ? "" : "r\(state.assignAttempts + 1)-", into: &next, llm: llm)
+        }
+        next.assignAttempts += 1
+        return next
+    }
+
+    /// LLM 에 행들의 업무를 묻고 답을 next 에 합친다. openTasks 는 프롬프트에 보이는 후보, prefix 는 이 답이 정의한 ref 에 붙인다
+    private static func ask(_ rows: [ActivityRow], openTasks: [TaskDigest], prefix: String, into next: inout JudgeState, llm: any LLMClient) async throws {
+        let input = next.input
+        let user = StagePrompt.assign(rows: rows, openTasks: openTasks, cards: input.cards, now: input.now, timeZone: input.timeZone)
+        let result = try await call("assign", system: StagePrompt.assignSystem, user: user, tool: StageTool.assign, state: next, llm: llm)
         let answer = StageDecode.assign(result.arguments)
-        let prefix = state.assignAttempts == 0 ? "" : "r\(state.assignAttempts + 1)-"
-        let defined = Set(answer.tasks.map(\.ref)), openIds = Set(state.input.openTasks.map(\.id))
+        let defined = Set(answer.tasks.map(\.ref)), openIds = Set(openTasks.map(\.id))
+        // 판단 모델(Jev)은 기존 업무를 id 그대로 ref 로 쓴다. 그 정리에서는 LLM 이 같은 기존 업무에 붙인 별칭 ref 도 id 로 바꿔
+        // 한 업무가 ③ 에서 두 묶음이 되지 않게 한다 (판단 모델을 안 쓰면 예전과 같다)
+        var existingAlias: [String: String] = [:]
+        if input.judge != nil {
+            for d in answer.tasks where d.match == "existing" { if let id = d.id, openIds.contains(id) { existingAlias[d.ref] = id } }
+        }
         // 정의 없이 후보 업무의 id 를 바로 쓴 ref 는 그 업무 자체라 다시 물어도 이름을 바꾸지 않는다
         func isOpenId(_ ref: String) -> Bool { !defined.contains(ref) && openIds.contains(ref) }
-        func renamed(_ ref: String) -> String { ref == AssignmentPatch.offTask || isOpenId(ref) ? ref : prefix + ref }
-        let wanted = Set(pending.map(\.row))
+        func renamed(_ ref: String) -> String {
+            if ref == AssignmentPatch.offTask || isOpenId(ref) { return ref }
+            return existingAlias[ref] ?? prefix + ref
+        }
+        let wanted = Set(rows.map(\.row))
         var used = Set<String>()
         for (row, choice) in answer.rows where wanted.contains(row) {
             // 이 답이 정의하지 않은 ref ("existing" 같은 실수) 에 붙은 행은 답하지 않은 것으로 보고 다시 묻는다
@@ -193,15 +238,16 @@ public enum StagedPipeline {
             used.insert(renamed(choice.task))
         }
         for var definition in answer.tasks where used.contains(renamed(definition.ref)) {
+            let aliased = existingAlias[definition.ref] != nil
             definition.ref = renamed(definition.ref)
+            // 별칭을 id 로 바꾼 기존 업무가 이미 있으면(판단 모델이 먼저 붙인 경우) 한 번만 둔다
+            if aliased, next.assignment.tasks.contains(where: { $0.ref == definition.ref }) { continue }
             next.assignment.tasks.append(definition)
         }
         for ref in used.sorted() where isOpenId(ref) && !next.assignment.tasks.contains(where: { $0.ref == ref }) {
             next.assignment.tasks.append(AssignmentPatch.TaskDef(ref: ref, match: "existing", id: ref))
         }
-        next.assignAttempts += 1
         next.calls.append(record("assign", system: StagePrompt.assignSystem, user: user, result))
-        return next
     }
 
     /// ③ 업무별로 묶은 행
@@ -257,6 +303,7 @@ public enum StagedPipeline {
             tasks[index].taskType = state.description.taskTypes[tasks[index].ref]
         }
         return AssignmentPatch(tasks: tasks, rows: rows, work: state.description.work,
-                               problems: state.description.problems, laterItems: state.description.laterItems)
+                               problems: state.description.problems, laterItems: state.description.laterItems,
+                               calendarEvents: state.description.calendarEvents)
     }
 }

@@ -10,11 +10,11 @@ struct ChatFocusButton: View {
         let scope = chat.current.scope
         Button { picking = true } label: {
             HStack(spacing: 4) {
-                Image(systemName: "scope").font(.system(size: 9))
-                Text(Self.label(scope, choices: chat.focusChoices)).font(Brand.suit(10)).lineLimit(1)
+                Image(systemName: "diamond").font(.system(size: 10))
+                Text(Self.label(scope, choices: chat.focusChoices)).font(Brand.suit(11)).lineLimit(1)
                 Image(systemName: "chevron.down").font(.system(size: 8))
             }
-            .foregroundStyle(Brand.gray)
+            .foregroundStyle(Brand.tabText)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -51,7 +51,7 @@ struct ChatFocusPicker: View {
     var body: some View {
         ChatFocusTree(chat: chat, movesCursor: false, maxHeight: 400)
             .padding(.vertical, 8)
-            .frame(width: 320)
+            .frame(width: 438)
             .onDisappear { chat.inputFocusRequest += 1 }
     }
 }
@@ -106,7 +106,8 @@ struct ChatFocusTree: View {
                 Image(systemName: "magnifyingglass").font(.system(size: 11)).foregroundStyle(Brand.gray)
                 TextField("업무·분야 검색", text: $query).textFieldStyle(.plain).font(Brand.suit(12))
             }
-            .brandField(height: 30).padding(.horizontal, 12)
+            .padding(.horizontal, 14).frame(height: 32)
+            Rectangle().fill(Brand.line).frame(height: 1).padding(.horizontal, 12)     // CH-04: 바탕 상자 없이 아래 구분선
             ScrollView {
                 VStack(alignment: .leading, spacing: 1) {
                     if needle.isEmpty {
@@ -147,20 +148,20 @@ struct ChatFocusTree: View {
                 if collapsed.contains(folder.id) { collapsed.remove(folder.id) } else { collapsed.insert(folder.id) }
             } label: {
                 Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold)).foregroundStyle(Brand.gray)
-                    .rotationEffect(.degrees(open ? 90 : 0)).frame(width: 22, height: 30).contentShape(Rectangle())
+                    .rotationEffect(.degrees(open ? 90 : 0)).frame(width: 22, height: 31).contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("\(folder.title) \(open ? "접기" : "펼치기")")
             Button { chat.setFocus(Self.toggle(folder, in: selection), movesCursor: movesCursor) } label: {
                 HStack(spacing: 7) {
                     Image(systemName: mark == .all ? "checkmark.square.fill" : mark == .some ? "minus.square.fill" : "square")
-                        .font(.system(size: 13)).foregroundStyle(mark == .none ? Brand.gray : Brand.ink)
+                        .font(.system(size: 13)).foregroundStyle(mark == .none ? Brand.gray : Brand.accentDark)
                     Image(systemName: "folder").font(.system(size: 11)).foregroundStyle(Brand.tabText)
-                    Text(folder.title).font(Brand.suit(12, .medium)).foregroundStyle(Brand.ink).lineLimit(1)
+                    Text(folder.title).font(Brand.suit(12, .bold)).foregroundStyle(Brand.ink).lineLimit(1)
                     Spacer(minLength: 6)
                     Text("\(folder.tasks.count)").font(.custom("Jost-Light", size: 12)).foregroundStyle(Brand.gray)
                 }
-                .padding(.trailing, 8).frame(height: 30).contentShape(Rectangle())
+                .padding(.trailing, 8).frame(height: 31).contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("\(folder.title) 분야 \(mark == .all ? "고름" : mark == .some ? "일부 고름" : "안 고름")")
@@ -172,12 +173,12 @@ struct ChatFocusTree: View {
         Button(action: action) {
             HStack(spacing: 7) {
                 Image(systemName: symbol).font(.system(size: 13))
-                    .foregroundStyle(symbol == "square" || symbol == "circle" ? Brand.gray : Brand.ink)
+                    .foregroundStyle(symbol == "square" || symbol == "circle" ? Brand.gray : Brand.accentDark)
                 Text(title).font(Brand.suit(12)).foregroundStyle(Brand.ink).lineLimit(1)
                 Spacer(minLength: 8)
                 if !detail.isEmpty { Text(detail).font(Brand.suit(10)).foregroundStyle(Brand.gray).lineLimit(1) }
             }
-            .padding(.leading, 8 + indent).padding(.trailing, 8).frame(height: 30).contentShape(Rectangle())
+            .padding(.leading, 8 + indent).padding(.trailing, 8).frame(height: 31).contentShape(Rectangle())
         }
         .buttonStyle(.plain).hoverHighlight(cornerRadius: 5)
     }

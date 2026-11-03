@@ -164,10 +164,41 @@ final class ChatState: ObservableObject {
     /// Args: 없음.
     /// Returns: 없음. 현재 입력을 저장하고 응답 생성을 시작한다.
     /// Raises: 없음. 실행 오류는 해당 응답과 화면에 남긴다.
-    func send() {
+    @discardableResult
+    func send() -> Bool {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !running else { return }
-        if begin(text, conversation: current, automationID: nil) { draft = "" }
+        guard !text.isEmpty, !running else { return false }
+        guard begin(text, conversation: current, automationID: nil) else { return false }
+        draft = ""
+        return true
+    }
+
+    /// 고정한 대화, 고정 시각 내림차순.
+    var pinnedConversations: [ChatConversation] {
+        conversations.filter { $0.pinnedAt != nil }.sorted { ($0.pinnedAt ?? 0) > ($1.pinnedAt ?? 0) }
+    }
+
+    /// 고정 아닌 대화, 최신순.
+    var recentConversations: [ChatConversation] {
+        conversations.filter { $0.pinnedAt == nil }.sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    /// 고정 또는 해제한다. 실패하면 error에 남긴다.
+    func togglePin(_ conversation: ChatConversation) {
+        let pin = conversation.pinnedAt == nil
+        do {
+            try store.setPinned(conversation.id, pinned: pin)
+            if current.id == conversation.id { current.pinnedAt = pin ? Date().timeIntervalSince1970 : nil }
+            try reload()
+        } catch { self.error = error.localizedDescription }
+    }
+
+    /// 제목과 본문에서 찾는다. 빈 글이면 [].
+    /// DB 조회는 메인 스레드 밖에서 돈다.
+    func search(_ query: String) async -> [ChatSearchHit] {
+        let store = store
+        do { return try await Task.detached { try store.searchConversations(query) }.value }
+        catch { self.error = error.localizedDescription; return [] }
     }
 
     /// Args: 없음.

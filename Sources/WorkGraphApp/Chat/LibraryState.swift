@@ -16,6 +16,11 @@ final class LibraryState: ObservableObject {
         do { items = try store.items() } catch { self.error = error.localizedDescription }
     }
 
+    func results(limit: Int? = nil) -> [ChatLibraryItem] {
+        let all = items.filter { $0.kind == "generated" }.sorted { $0.createdAt > $1.createdAt }
+        return limit.map { Array(all.prefix($0)) } ?? all
+    }
+
     func collectExisting() {
         guard !busy else { return }
         busy = true
@@ -36,7 +41,7 @@ final class LibraryState: ObservableObject {
         guard !busy else { return }
         let panel = NSOpenPanel()
         panel.canChooseFiles = true; panel.canChooseDirectories = false; panel.allowsMultipleSelection = true
-        panel.message = "파일을 Sillog 보관함에 복사합니다. 연결한 대화와 프로젝트에서 필요한 내용이 설정된 LLM에 전달됩니다."
+        panel.message = "파일을 SILLOG 보관함에 복사합니다. 연결한 대화와 프로젝트에서 필요한 내용이 설정된 LLM에 전달됩니다."
         guard panel.runModal() == .OK else { return }
         let urls = panel.urls, store = store
         busy = true; error = nil
