@@ -7,6 +7,7 @@ import WorkGraphCore
 /// 설정 탭: 위쪽 글자 탭(일반, AI 연결, 활동 로그)과 그 아래 한 쪽. 일반은 권한, 수집, 개인정보와 저장 공간, 앱 실행을 한 쪽에 잇는다. Figma ST-01~06, ST-W1~W8.
 struct SettingsView: View {
     @EnvironmentObject private var state: AppState
+    @ObservedObject private var calendar = CalendarService.shared
     @State private var launchAtLogin = false
     @State private var launchStatusLoaded = false
     @State private var launchError: String?
@@ -20,7 +21,7 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            TextTabs(selection: $state.settingsSection)
+            TextTabs(selection: $state.settingsSection, selectedFill: Color(hex: 0xEFECE9))
             if state.settingsSection == .activity {
                 ActivityLogView().frame(maxWidth: .infinity, maxHeight: .infinity)   // 자기 표와 스크롤이 있다
             } else {
@@ -83,6 +84,11 @@ struct SettingsView: View {
             }
             permissionTile("알림", icon: "bell", detail: "파일 정리 제안을 알려요. 꺼져 있어도 파일 구역에서 볼 수 있어요.", granted: !state.notificationsDenied) {
                 SuggestionNotifier.openSystemSettings()
+            }
+            permissionTile("캘린더", icon: "calendar",
+                           detail: calendar.granted ? "오늘 일정을 보여 줘요. 등록할 캘린더는 \(CalendarService.calendarName)이에요." : "꺼져 있어 오늘 일정을 못 보여 주고 일정을 등록하지 못해요.",
+                           granted: calendar.granted) {
+                Task { await calendar.requestAccess() }
             }
             }
             .padding(.top, 4)
@@ -186,19 +192,30 @@ struct SettingsView: View {
                 set: { state.settings[keyPath: main] = $0; state.settings[keyPath: chat] = $0 })
     }
 
+    /// '정리 모델과 같이' 고르기. 같이에서 따로로 바꾸는 순간에는 지금 쓰던 정리 모델을 채팅 모델 칸에 채워 채팅 모델이 갑자기 바뀌지 않게 한다.
+    /// 채팅 연결 방식(chatProvider)은 늘 정리와 같게 맞춘다.
+    private var chatSameBinding: Binding<Bool> {
+        Binding(get: { state.settings.chatSameAsOrganize },
+                set: { same in
+                    if !same, state.settings.chatSameAsOrganize {
+                        state.settings.chatCodexModel = state.settings.codexModel
+                        state.settings.chatAjouModel = state.settings.ajouModel
+                        state.settings.chatModel = state.settings.llmModel
+                    }
+                    state.settings.chatSameAsOrganize = same
+                    state.settings.chatProvider = state.settings.llmProvider
+                })
+    }
+
     private var aiConnection: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ConnectionSection(
-                provider: chatBinding(\.llmProvider, \.chatProvider),
-                openAIModel: $state.settings.llmModel, chatOpenAIModel: $state.settings.chatModel,
-                baseURL: chatBinding(\.llmBaseURL, \.chatBaseURL), apiKey: chatBinding(\.llmAPIKey, \.chatAPIKey),
-                ajouModel: $state.settings.ajouModel, chatAjouModel: $state.settings.chatAjouModel, ajouKey: $state.settings.ajouAPIKey,
-                codexModel: $state.settings.codexModel, chatCodexModel: $state.settings.chatCodexModel,
-                test: { Task { await state.testLLM(); await state.testChatLLM() } })
-            Text("기록은 Mac에 저장되고, 정리와 채팅을 쓸 때 창 제목, 주소, 화면 텍스트 일부, 질문, 새 파일 정보가 연결한 AI 계정으로 전송돼요. 연결 확인은 개인 자료 없이 시험 호출만 하고, 모델 사용량이 소량 발생해요.")
-                .font(Brand.suit(10)).foregroundStyle(Brand.gray).lineSpacing(3).fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 14).padding(.horizontal, 4)
-        }
+        ConnectionSection(
+            provider: chatBinding(\.llmProvider, \.chatProvider),
+            openAIModel: $state.settings.llmModel, chatOpenAIModel: $state.settings.chatModel,
+            baseURL: chatBinding(\.llmBaseURL, \.chatBaseURL), apiKey: chatBinding(\.llmAPIKey, \.chatAPIKey),
+            ajouModel: $state.settings.ajouModel, chatAjouModel: $state.settings.chatAjouModel, ajouKey: $state.settings.ajouAPIKey,
+            codexModel: $state.settings.codexModel, chatCodexModel: $state.settings.chatCodexModel,
+            judge: $state.settings.judgeProvider, jevKey: $state.settings.jevAPIKey, chatSame: chatSameBinding,
+            test: { Task { await state.testLLM(); await state.testChatLLM() } })
         .onAppear { unifyChat() }
     }
 
@@ -211,9 +228,72 @@ struct SettingsView: View {
     }
 }
 
-// MARK: AI 연결 한 구역 (Figma ST-03~14, 27~36)
+// MARK: AI 연결 한 구역 (Figma ST-03, 08, 09, 10, 27, 37)
 
-/// 회사별 모델 알약: 고른 것만 #6E5A4D 바탕에 흰 글씨. 목록에 없는 고른 값도 알약으로 보인다.
+/// 알약 하나. 고른 것은 바탕 #EAE3DC에 1pt 테두리 #CCBEB3와 글자 #3D2F27 medium, 안 고른 것은 바탕 #F3F1EF와 글자 #4A4541.
+/// 진한 갈색 채움 알약은 쓰지 않는다. 테두리는 선 대신 채움 두 겹(바깥 테두리색, 안쪽 바탕색)으로 그린다: 같은 모양이고 화면 캡처 때 끝이 지저분해지지 않는다.
+private struct SettingPill<Content: View>: View {
+    let on: Bool
+    let action: () -> Void
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        Button(action: action) {
+            content()
+                .font(Brand.suit(11, on ? .medium : .regular))
+                .foregroundStyle(on ? Color(hex: 0x3D2F27) : Brand.tabText)
+                .padding(.horizontal, 14).frame(height: 28)
+                .background {
+                    ZStack {
+                        Capsule().fill(on ? Color(hex: 0xCCBEB3) : Color(hex: 0xF3F1EF))
+                        if on { Capsule().inset(by: 1).fill(Brand.badgeFill) }
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// Jev 로고 (Resources/Brand/jev.png). Brand 의 그림 불러오기와 같은 방식이고, 그림을 못 찾으면 아무것도 그리지 않는다
+private struct SettingJevLogo: View {
+    let size: CGFloat
+    private static let image: NSImage? = {
+        let url = BundledResources.url(forResource: "jev", withExtension: "png", subdirectory: "Brand", main: .main) { .module }
+        return url.flatMap(NSImage.init(contentsOf:))
+    }()
+
+    var body: some View {
+        if let image = Self.image {
+            Image(nsImage: image).resizable().interpolation(.high).frame(width: size, height: size).clipShape(Circle())
+        }
+    }
+}
+
+/// 연결 확인 결과 글과 단추: 확인 전은 회색, 성공은 파랑 체크와 글, 실패는 붉은 글. result 가 nil 이면 '확인 전'
+private struct SettingCheckStatus: View {
+    let result: String?
+    let testing: Bool
+    let action: () -> Void
+
+    var body: some View {
+        HStack(spacing: 14) {
+            if let result {
+                let ok = result.hasPrefix("연결됨")
+                HStack(spacing: 6) {
+                    if ok { Image(systemName: "checkmark.circle.fill").font(.system(size: 13)) }
+                    Text(result).font(Brand.suit(11)).lineLimit(3).multilineTextAlignment(.trailing).textSelection(.enabled)
+                }.foregroundStyle(ok ? Color(hex: 0x4A86C5) : testing ? Brand.gray : Color(hex: 0xC9452E))
+            } else {
+                Text("확인 전").font(Brand.suit(11)).foregroundStyle(Brand.gray)
+            }
+            if testing { ProgressView().controlSize(.small) }
+            Button(action: action) { Text("연결 확인").font(Brand.suit(12, .medium)) }   // Figma 단추 글자는 12
+                .buttonStyle(BrandButtonStyle(kind: .primary)).disabled(testing)
+        }
+    }
+}
+
+/// 모델 알약 목록: 맨 위에 직접 입력 칸, 아래에 회사별 알약 줄. 목록에 없는 고른 값은 직접 입력 칸에 보인다.
 private struct ModelPills: View {
     let groups: [(String, [(slug: String, label: String)])]
     @Binding var selection: String
@@ -225,30 +305,23 @@ private struct ModelPills: View {
                 set: { selection = $0.isEmpty ? (groups.first?.1.first?.slug ?? "") : $0 })
     }
 
-    private var shown: [(String, [(slug: String, label: String)])] {
-        groups
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Text("직접 입력").font(Brand.suit(10)).foregroundStyle(Brand.gray).frame(width: 62, alignment: .leading)
-                BrandInput(text: custom, placeholder: "목록에 없는 모델 이름", width: 260)
+            HStack(spacing: 0) {
+                Text("직접 입력").font(Brand.suit(11)).foregroundStyle(Brand.gray).frame(width: 62, alignment: .leading)
+                BrandInput(text: custom, placeholder: "목록에 없는 모델 이름", width: 260, height: 34)
             }
-            ForEach(shown.indices, id: \.self) { i in
-                HStack(spacing: 8) {
-                    Text(shown[i].0).font(Brand.suit(10)).foregroundStyle(Brand.gray).frame(width: 62, alignment: .leading)
-                    ForEach(shown[i].1, id: \.slug) { model in
-                        let on = model.slug == selection
-                        Button { selection = model.slug } label: {
-                            Text(model.label).font(Brand.suit(11, on ? .medium : .regular)).foregroundStyle(on ? .white : Brand.tabText)
-                                .padding(.horizontal, 14).frame(height: 28)
-                                .background(on ? Brand.accentDark : Color(hex: 0xF3F1EF), in: Capsule())
-                        }.buttonStyle(.plain)
+            ForEach(groups.indices, id: \.self) { i in
+                HStack(spacing: 0) {
+                    Text(groups[i].0).font(Brand.suit(11)).foregroundStyle(Brand.gray).frame(width: 62, alignment: .leading)
+                    HStack(spacing: 6) {
+                        ForEach(groups[i].1, id: \.slug) { model in
+                            SettingPill(on: model.slug == selection, action: { selection = model.slug }) { Text(model.label) }
+                        }
                     }
                 }
             }
-        }.frame(maxWidth: .infinity, alignment: .trailing)
+        }
     }
 }
 
@@ -264,10 +337,16 @@ private struct ConnectionSection: View {
     @Binding var ajouKey: String
     @Binding var codexModel: String
     @Binding var chatCodexModel: String
+    @Binding var judge: String
+    @Binding var jevKey: String
+    @Binding var chatSame: Bool
     let test: () -> Void
+    @State private var jevResult: String?
+    @State private var jevChecking = false
+    @FocusState private var jevFocused: Bool
 
     private static let ajouGroups: [(String, [(slug: String, label: String)])] = [
-        ("GPT", ["gpt-6-luna", "gpt-6.1-sol", "gpt-6-sol"].map { ($0, $0) }),
+        ("GPT", ["gpt-6.1-sol", "gpt-6-sol"].map { ($0, $0) }),
         ("Claude", ["claude-opus-5-5", "claude-sonnet-5-5", "claude-fable-5-1"].map { ($0, $0) }),
         ("Gemini", ["gemini-4-argon", "gemini-3.8-flash"].map { ($0, $0) }),
     ]
@@ -285,10 +364,10 @@ private struct ConnectionSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            SectionLabel("연결").padding(.top, 18)
+            SectionLabel("연결", top: 19, inset: 0, bottom: 0, height: 12)
             SettingCard {
-                SettingRow("연결 방식") {
-                    BrandMenu(selection: $provider, options: [("codex", "ChatGPT 로그인"), ("ajou", "아주대 LLM API"), ("openai", "OpenAI 호환 서버")], width: 190)
+                SettingRow("연결 방식", top: 16, bottom: 7) {
+                    BrandMenu(selection: $provider, options: [("codex", "ChatGPT 구독"), ("ajou", "아주대 LLM API"), ("openai", "API")], width: 190)
                 }
                 switch provider {
                 case "ajou": ajouRows
@@ -297,71 +376,78 @@ private struct ConnectionSection: View {
                 }
             }
             if provider == "codex" { codexExtras }
+            SectionLabel("모델", top: 11, inset: 0, bottom: 0, height: 12)
+            judgeRow
+            if judge == "jev" { jevKeyRow }
+            organizeRow
+            chatRow
+            Text("기록은 Mac에 저장되고, 정리와 채팅을 쓸 때 창 제목, 주소, 화면 텍스트 일부, 질문, 새 파일 정보가 연결한 AI 계정으로 전송돼요. 연결 확인은 개인 자료 없이 시험 호출만 하고, 모델 사용량이 소량 발생해요.")
+                .font(Brand.suit(11)).foregroundStyle(Brand.gray).lineSpacing(3).fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 10)
         }
+        .onChange(of: jevKey) { _, _ in jevResult = nil }
+        .onChange(of: judge) { _, _ in jevResult = nil }
     }
 
-    /// 모델 한 줄: 제목은 왼쪽, 알약이나 입력칸은 오른쪽
-    private func modelRow<Content: View>(_ title: String, @ViewBuilder _ content: () -> Content) -> some View {
+    // MARK: 줄 틀
+
+    /// 키가 큰 줄(알약, 모델 목록, Jev 키): 제목은 왼쪽 위 slot 높이 칸 안에 가운데, 조작 요소는 오른쪽 column 폭 칸 안에 왼쪽 맞춤.
+    /// 위 20, 아래 11(구분선 1pt 포함)이 모델 줄, 위 16, 아래 7이 키 줄이다. sub 는 제목 아래 작은 회색 글
+    private func tallRow<Content: View>(_ title: String, sub: String? = nil, slot: CGFloat = 28, top: CGFloat = 20, bottom: CGFloat = 11,
+                                        column: CGFloat? = 460, @ViewBuilder _ content: () -> Content) -> some View {
         HStack(alignment: .top, spacing: 16) {
-            Text(title).font(Brand.suit(13)).foregroundStyle(Brand.ink).padding(.top, 4)
+            VStack(alignment: .leading, spacing: -3) {
+                Text(title).font(Brand.suit(13)).foregroundStyle(Brand.ink).frame(height: slot)
+                if let sub { Text(sub).font(Brand.suit(11)).foregroundStyle(Brand.gray).frame(height: 13).offset(y: 1) }
+            }
             Spacer(minLength: 16)
-            content()
+            if let column { content().frame(width: column, alignment: .leading) } else { content() }
         }
-        .padding(.vertical, 16).frame(maxWidth: .infinity)
+        .padding(.top, top).padding(.bottom, bottom)
+        .frame(maxWidth: .infinity)
         .overlay(alignment: .bottom) { Rectangle().fill(Brand.line).frame(height: 1) }
     }
 
-    /// 연결 상태 줄: 성공은 파랑 체크와 글, 실패는 붉은 글
-    private var statusRow: some View {
-        SettingRow("연결 상태") {
-            HStack(spacing: 10) {
-                if let result {
-                    let ok = result.hasPrefix("연결됨")
-                    let tint = ok ? Color(hex: 0x4A86C5) : result == "확인 중…" ? Brand.gray : Color(hex: 0xC9452E)
-                    HStack(spacing: 6) {
-                        if ok { Image(systemName: "checkmark.circle.fill").font(.system(size: 13)) }
-                        Text(result).font(Brand.suit(11)).lineLimit(3).multilineTextAlignment(.trailing).textSelection(.enabled)
-                    }.foregroundStyle(tint)
-                } else {
-                    Text("확인 전").font(Brand.suit(11)).foregroundStyle(Brand.gray)
-                }
-                if testing { ProgressView().controlSize(.small) }
-                Button("연결 확인", action: test).buttonStyle(BrandButtonStyle()).disabled(testing)
-            }
-        }
+    /// "키 받기 ↗": 키를 만드는 사이트를 연다
+    private func keyLink(_ site: URL, help: String) -> some View {
+        Button { NSWorkspace.shared.open(site) } label: {
+            HStack(spacing: 3) { Text("키 받기"); Image(systemName: "arrow.up.right").font(.system(size: 8)) }
+        }.buttonStyle(BrandButtonStyle()).help(help).fixedSize()
     }
 
-    /// 아주대 LLM API: 주소는 정해져 있어 키와 모델만 보인다 (키는 아주대 LLM 사이트 개발자 메뉴에서 받는다)
+    /// 연결 상태 줄: 결과 글과 연결 확인 단추 (키 줄 바로 아래)
+    private var statusRow: some View {
+        SettingRow("연결 상태", top: 16, bottom: 7) { SettingCheckStatus(result: result, testing: testing, action: test) }
+    }
+
+    // MARK: 연결 방식별 줄
+
+    /// 아주대 LLM API: 주소는 정해져 있어 키만 보인다 (키는 아주대 LLM 사이트 개발자 메뉴에서 받는다)
     @ViewBuilder private var ajouRows: some View {
-        SettingRow("API 키") {
-            HStack(spacing: 4) {
-                Button { NSWorkspace.shared.open(AppSettings.ajouSite) } label: {
-                    HStack(spacing: 3) { Text("키 받기"); Image(systemName: "arrow.up.right").font(.system(size: 8)) }
-                }.buttonStyle(BrandButtonStyle()).help("아주대 LLM 개발자 메뉴에서 키를 만들어요").fixedSize()
+        SettingRow("API 키", top: 16, bottom: 7) {
+            HStack(spacing: 12) {
+                keyLink(AppSettings.ajouSite, help: "아주대 LLM 개발자 메뉴에서 키를 만들어요")
                 BrandInput(text: $ajouKey, placeholder: "아주대 LLM에서 받은 키", width: 460, secure: true)
             }
         }
-        modelRow("정리 모델") { ModelPills(groups: Self.ajouGroups, selection: $ajouModel) }
-        modelRow("채팅 모델") { ModelPills(groups: Self.ajouGroups, selection: $chatAjouModel) }
         statusRow
     }
 
     @ViewBuilder private var openAIRows: some View {
-        SettingRow("서버 주소") { BrandInput(text: $baseURL, placeholder: "http://localhost:5010/v1", width: 460) }
-        SettingRow("API 키", detail: "없으면 비워 둬요.") { BrandInput(text: $apiKey, placeholder: "", width: 460, secure: true) }
-        SettingRow("정리 모델") { BrandInput(text: $openAIModel, placeholder: "gpt-5.4-mini", width: 460) }
-        SettingRow("채팅 모델") { BrandInput(text: $chatOpenAIModel, placeholder: "gpt-5.4-mini", width: 460) }
+        SettingRow("서버 주소", top: 16, bottom: 7) { BrandInput(text: $baseURL, placeholder: "http://localhost:5010/v1", width: 460) }
+        SettingRow("API 키", detail: "없으면 비워 둬요.", top: 16, bottom: 7) { BrandInput(text: $apiKey, placeholder: "", width: 460, secure: true) }
         statusRow
     }
 
-    /// ChatGPT 로그인: 로그인했으면 계정, 모델 알약, 사용량. 로그인 전이면 로그인 단추 한 줄
+    /// ChatGPT 구독: 로그인했으면 계정(연결 확인, 더 보기 메뉴)과 사용량. 로그인 전이면 로그인 단추 한 줄
     @ViewBuilder private var codexRows: some View {
         switch state.codexStatus {
         case .loggedIn(let email, let plan, _):
-            SettingRow(email ?? "ChatGPT 계정", detail: plan.map { "\($0) 요금제로 연결됨" } ?? "연결됨") {
-                HStack(spacing: 8) {
+            SettingRow("ChatGPT 계정", detail: [email, plan.map { "\($0) 요금제로 연결됨" } ?? "연결됨"].compactMap { $0 }.joined(separator: ", "), top: 16, bottom: 7) {
+                HStack(spacing: 14) {
                     if testing || state.codexModelsLoading { ProgressView().controlSize(.small) }
-                    Button("연결 확인", action: test).buttonStyle(BrandButtonStyle()).disabled(testing)
+                    Button(action: test) { Text("연결 확인").font(Brand.suit(12, .medium)) }
+                        .buttonStyle(BrandButtonStyle()).disabled(testing)
                     Menu {
                         if state.codexModelsLoading { Button("모델 검사 중단") { state.cancelCodexModelLoading() } }
                         else { Button("모델 다시 확인") { Task { await state.loadCodexModels(force: true) } } }
@@ -369,53 +455,39 @@ private struct ConnectionSection: View {
                         Divider()
                         Button("로그아웃") { state.logoutCodex() }
                     } label: {
-                        Image(systemName: "ellipsis").font(.system(size: 12)).foregroundStyle(Brand.tabText).frame(width: 28, height: 28).contentShape(Rectangle())
+                        Image(systemName: "ellipsis").font(.system(size: 15)).foregroundStyle(Brand.tabText).frame(width: 28, height: 28).contentShape(Rectangle())
                     }
                     .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize().help("더 보기")
                 }
             }
-            modelRow("정리 모델") { codexModelField($codexModel, state.codexModels) }
-            modelRow("채팅 모델") { codexModelField($chatCodexModel, state.chatCodexModels.isEmpty ? state.codexModels : state.chatCodexModels) }
             if let usage = state.codexUsage {
-                SettingRow("사용량") {
+                SettingRow("사용량", top: 16, bottom: 7) {
                     HStack(spacing: 18) {
                         ForEach([usage.primary, usage.secondary].compactMap { $0 }, id: \.windowSeconds) { window in
-                            VStack(alignment: .leading, spacing: 4) {
+                            VStack(alignment: .leading, spacing: 2) {
                                 HStack {
                                     Text(window.label).font(Brand.suit(10)).foregroundStyle(Brand.gray)
                                     Spacer(minLength: 6)
-                                    Text("\(Int(window.usedPercent.rounded()))%").font(Brand.jost(11)).foregroundStyle(Brand.text)
+                                    Text("\(Int(window.usedPercent.rounded()))%").font(Brand.jost(12)).foregroundStyle(Brand.text)
                                 }
+                                .frame(height: 16)
                                 Capsule().fill(Brand.line).frame(height: 3)
                                     .overlay(alignment: .leading) {
-                                        GeometryReader { g in Capsule().fill(Brand.ink.opacity(0.8)).frame(width: g.size.width * min(1, window.usedPercent / 100)) }
+                                        GeometryReader { g in Capsule().fill(Color(hex: 0x86756B)).frame(width: g.size.width * min(1, window.usedPercent / 100)) }
                                     }
                             }
                             .frame(width: 110)
                         }
                     }
+                    .frame(height: 35)
                 }
             }
         case .loggedOut:
             if state.deviceCode == nil {
-                SettingRow("로그인 안 됨", detail: "ChatGPT 계정으로 로그인하면 정리와 채팅을 쓸 수 있어요.") {
+                SettingRow("로그인 안 됨", detail: "ChatGPT 계정으로 로그인하면 정리와 채팅을 쓸 수 있어요.", top: 16, bottom: 7) {
                     Button("ChatGPT 로그인") { state.startCodexLogin() }.buttonStyle(BrandButtonStyle(kind: .primary))
                 }
             }
-        }
-    }
-
-    /// ChatGPT 모델 칸: 불러오는 중이면 안내, 목록이 있으면 알약, 없으면 직접 입력
-    @ViewBuilder private func codexModelField(_ selection: Binding<String>, _ models: [CodexModel]) -> some View {
-        if state.codexModelsLoading {
-            HStack(spacing: 8) {
-                Text("불러오는 중…").font(Brand.suit(11)).foregroundStyle(Brand.gray)
-                ProgressView().controlSize(.mini)
-            }.frame(maxWidth: .infinity, minHeight: 26, alignment: .trailing)
-        } else if models.isEmpty {
-            BrandInput(text: selection, placeholder: "gpt-5.6-luna", width: 190)
-        } else {
-            ModelPills(groups: [("GPT", models.map { ($0.slug, $0.displayName) })], selection: selection)
         }
     }
 
@@ -450,7 +522,110 @@ private struct ConnectionSection: View {
     }
 
     private func resultLine(_ text: String) -> some View {
-        Text(text).font(Brand.suit(11)).foregroundStyle(Brand.text).textSelection(.enabled).padding(.top, 10).padding(.horizontal, 4)
+        Text(text).font(Brand.suit(11)).foregroundStyle(Brand.text).textSelection(.enabled).padding(.top, 10)
+    }
+
+    // MARK: 모델
+
+    /// 판단 모델(선택): 안 씀, Jev API, 아주대 LLM jev-latest. 아주대 알약은 연결 방식이 아주대일 때만 보이고, 이미 골라져 있으면 계속 보인다
+    private var judgeRow: some View {
+        tallRow("판단 모델", sub: "선택, 안 쓰면 정리 모델이 판단해요") {
+            HStack(spacing: 6) {
+                SettingPill(on: judge == "none", action: { judge = "none" }) { Text("안 씀") }
+                SettingPill(on: judge == "jev", action: { judge = "jev" }) { jevLabel("Jev API") }
+                if provider == "ajou" || judge == "ajou" {
+                    SettingPill(on: judge == "ajou", action: { judge = "ajou" }) { jevLabel("아주대 LLM jev-latest") }
+                }
+            }
+        }
+    }
+
+    /// 알약 안: Jev 로고 14pt와 이름
+    private func jevLabel(_ name: String) -> some View {
+        HStack(spacing: 6) { SettingJevLogo(size: 14); Text(name) }
+    }
+
+    /// Jev API 키 줄: 키 받기, 키 칸(안에 Jev 로고 16pt). 키를 넣으면 칸 아래에 연결 확인이 나온다
+    private var jevKeyRow: some View {
+        tallRow("Jev API 키", slot: 36, top: 16, bottom: 7, column: nil) {
+            VStack(alignment: .trailing, spacing: 8) {
+                HStack(spacing: 12) {
+                    keyLink(AppSettings.jevSite, help: "Jev 사이트에서 키를 만들어요")
+                    HStack(spacing: 8) {
+                        SettingJevLogo(size: 16)
+                        SecureField("", text: $jevKey, prompt: Text("Jev 사이트에서 받은 키를 붙여 넣어요").foregroundStyle(Color(hex: 0x9E9994)))
+                            .textFieldStyle(.plain).font(Brand.suit(12)).foregroundStyle(Brand.text)
+                            .focused($jevFocused)
+                    }
+                    .settingField()
+                    .frame(width: 460)
+                    .contentShape(Rectangle())
+                    .onTapGesture { jevFocused = true }
+                }
+                if !jevKey.isEmpty {
+                    SettingCheckStatus(result: jevChecking ? "확인 중…" : jevResult, testing: jevChecking, action: checkJev)
+                }
+            }
+        }
+    }
+
+    /// Jev 연결 확인: 개인 자료 없이 작은 문항 하나만 보낸다. 확인하는 사이 키를 바꾸면 그 결과는 버린다
+    private func checkJev() {
+        guard let endpoint = state.settings.judgeEndpoint else { jevResult = "Jev API 키를 먼저 넣어 주세요"; return }
+        let key = jevKey
+        jevChecking = true; jevResult = nil
+        Task {
+            var message = "연결됨"
+            do { try await JevClient(endpoint: endpoint).verify() } catch { message = error.localizedDescription }
+            if jevKey == key { jevResult = message }
+            jevChecking = false
+        }
+    }
+
+    /// 정리 모델: 고른 연결 방식의 모델 목록
+    private var organizeRow: some View {
+        tallRow("정리 모델") {
+            modelList(codex: $codexModel, ajou: $ajouModel, openAI: $openAIModel, codexModels: state.codexModels)
+        }
+    }
+
+    /// 채팅 모델: 정리 모델과 같이(기본) 또는 따로 고르기. 따로 고르면 알약 아래에 같은 연결 방식의 모델 목록이 펼쳐진다
+    private var chatRow: some View {
+        tallRow("채팅 모델") {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
+                    SettingPill(on: chatSame, action: { chatSame = true }) { Text("정리 모델과 같이") }
+                    SettingPill(on: !chatSame, action: { chatSame = false }) { Text("따로 고르기") }
+                }
+                if !chatSame {
+                    modelList(codex: $chatCodexModel, ajou: $chatAjouModel, openAI: $chatOpenAIModel,
+                              codexModels: state.chatCodexModels.isEmpty ? state.codexModels : state.chatCodexModels)
+                }
+            }
+        }
+    }
+
+    /// 고른 연결 방식의 모델 목록: ChatGPT 구독은 계정에서 쓸 수 있는 모델, 아주대는 회사별 알약, API는 직접 입력
+    @ViewBuilder private func modelList(codex: Binding<String>, ajou: Binding<String>, openAI: Binding<String>, codexModels: [CodexModel]) -> some View {
+        switch provider {
+        case "ajou": ModelPills(groups: Self.ajouGroups, selection: ajou)
+        case "openai": BrandInput(text: openAI, placeholder: "gpt-5.4-mini", width: 460)
+        default: codexModelField(codex, codexModels)
+        }
+    }
+
+    /// ChatGPT 모델 칸: 불러오는 중이면 안내, 목록이 있으면 알약, 없으면 직접 입력
+    @ViewBuilder private func codexModelField(_ selection: Binding<String>, _ models: [CodexModel]) -> some View {
+        if state.codexModelsLoading {
+            HStack(spacing: 8) {
+                Text("불러오는 중…").font(Brand.suit(11)).foregroundStyle(Brand.gray)
+                ProgressView().controlSize(.mini)
+            }.frame(height: 28)
+        } else if models.isEmpty {
+            BrandInput(text: selection, placeholder: "gpt-5.6-luna", width: 460)
+        } else {
+            ModelPills(groups: [("GPT", models.map { ($0.slug, $0.displayName) })], selection: selection)
+        }
     }
 }
 
@@ -466,15 +641,20 @@ struct SettingCard<Content: View>: View {
 }
 
 /// 설정 한 줄: 왼쪽 아이콘(있으면)과 제목, 오른쪽 조작 요소, 아래 구분선 (설명은 말풍선으로만)
+/// top, bottom: 위아래 여백. 기본 10, AI 연결 탭은 Figma 대로 위 16, 아래 7(구분선 1pt 포함)
 struct SettingRow<Trailing: View>: View {
     let title: String
     let detail: String?
     var icon: String? = nil                      // SF 기호 이름, 또는 앱 아이콘 같은 이미지(iconImage)
     var iconImage: NSImage? = nil
+    var top: CGFloat = 10
+    var bottom: CGFloat = 10
     @ViewBuilder let trailing: () -> Trailing
 
-    init(_ title: String, detail: String? = nil, icon: String? = nil, iconImage: NSImage? = nil, @ViewBuilder trailing: @escaping () -> Trailing) {
-        self.title = title; self.detail = detail; self.icon = icon; self.iconImage = iconImage; self.trailing = trailing
+    init(_ title: String, detail: String? = nil, icon: String? = nil, iconImage: NSImage? = nil,
+         top: CGFloat = 10, bottom: CGFloat = 10, @ViewBuilder trailing: @escaping () -> Trailing) {
+        self.title = title; self.detail = detail; self.icon = icon; self.iconImage = iconImage
+        self.top = top; self.bottom = bottom; self.trailing = trailing
     }
 
     var body: some View {
@@ -490,18 +670,25 @@ struct SettingRow<Trailing: View>: View {
             Spacer(minLength: 16)
             trailing()
         }
-        .padding(.vertical, 10)
+        .padding(.top, top).padding(.bottom, bottom)
         .frame(minHeight: 48)
         .overlay(alignment: .bottom) { Rectangle().fill(Brand.line).frame(height: 1) }
     }
 }
 
-/// 묶음 위 구역 제목: 작은 회색 글씨
+/// 묶음 위 구역 제목: 작은 회색 글씨. 기본은 위 26, 좌우 4, 아래 8. AI 연결 탭은 왼쪽 선에 맞추려 좌우 0, 고정 높이 12로 쓴다
 struct SectionLabel: View {
     let text: String
-    init(_ text: String) { self.text = text }
+    var top: CGFloat = 26
+    var inset: CGFloat = 4
+    var bottom: CGFloat = 8
+    var height: CGFloat? = nil
+    init(_ text: String, top: CGFloat = 26, inset: CGFloat = 4, bottom: CGFloat = 8, height: CGFloat? = nil) {
+        self.text = text; self.top = top; self.inset = inset; self.bottom = bottom; self.height = height
+    }
     var body: some View {
-        Text(text).font(Brand.suit(11, .medium)).foregroundStyle(Brand.gray).padding(.horizontal, 4).padding(.top, 26).padding(.bottom, 8)
+        Text(text).font(Brand.suit(11, .medium)).foregroundStyle(Brand.gray)
+            .frame(height: height).padding(.horizontal, inset).padding(.top, top).padding(.bottom, bottom)
     }
 }
 
@@ -552,7 +739,17 @@ struct BrandSwitchStyle: ToggleStyle {
     }
 }
 
-/// 연결 방식, 모델 선택 상자: 밑줄 위에 고른 값과 아래 화살표
+extension View {
+    /// 설정의 입력칸과 고르기 칸: 밑줄 대신 연한 바탕 칸 (Figma ST-03). 안쪽 여백 좌우 12, 둥글기 8, 기본 높이 36.
+    /// 밑줄은 아래 줄 구분선과 겹쳐 두 줄로 보였다
+    func settingField(height: CGFloat = 36) -> some View {
+        padding(.horizontal, 12)
+            .frame(height: height)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0xF5F2EE)))
+    }
+}
+
+/// 연결 방식, 모델 선택 상자: 연한 바탕 칸에 고른 값과 아래 화살표
 struct BrandMenu: View {
     @Binding var selection: String
     let options: [(String, String)]
@@ -565,11 +762,11 @@ struct BrandMenu: View {
             }
         } label: {
             HStack {
-                Text(options.first { $0.0 == selection }?.1 ?? selection).font(Brand.suit(11)).foregroundStyle(Brand.text).lineLimit(1)
+                Text(options.first { $0.0 == selection }?.1 ?? selection).font(Brand.suit(12)).foregroundStyle(Brand.text).lineLimit(1)
                 Spacer(minLength: 4)
                 Image(systemName: "chevron.down").font(.system(size: 9, weight: .medium)).foregroundStyle(Brand.tabText)
             }
-            .brandField()
+            .settingField()
             .frame(width: width)
         }
         .menuStyle(.button)
@@ -579,12 +776,14 @@ struct BrandMenu: View {
     }
 }
 
-/// 한 줄 입력칸
+/// 한 줄 입력칸: 연한 바탕 칸 어디를 눌러도 글자 입력이 시작된다
 struct BrandInput: View {
     @Binding var text: String
     let placeholder: String
     let width: CGFloat
     var secure = false
+    var height: CGFloat = 36
+    @FocusState private var focused: Bool
 
     var body: some View {
         Group {
@@ -595,7 +794,10 @@ struct BrandInput: View {
             }
         }
         .textFieldStyle(.plain).font(Brand.suit(12)).foregroundStyle(Brand.text)
-        .brandField(height: 38)
+        .focused($focused)
+        .settingField(height: height)
         .frame(width: width)
+        .contentShape(Rectangle())
+        .onTapGesture { focused = true }
     }
 }

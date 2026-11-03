@@ -152,7 +152,7 @@ struct StorageSettingsView: View {
                     .frame(width: 40)
                 Text("일").font(Brand.suit(11)).foregroundStyle(Brand.text).padding(.leading, 6)
             }
-            .brandField(height: 33)
+            .settingField()
             .frame(width: 88)
             Text(verbatim: "\(range.lowerBound)~\(range.upperBound)일").font(Brand.suit(10)).foregroundStyle(Brand.gray)
                 .lineLimit(1).fixedSize().frame(width: 62, alignment: .leading)

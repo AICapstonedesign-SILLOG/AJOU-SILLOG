@@ -42,7 +42,10 @@ final class OnboardingOverlayTests: XCTestCase {
                                      context: nil, characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36)!
         _ = window.performKeyEquivalent(with: enter)
         settle(window)
-        XCTAssertEqual(state.onboardingStep, .permissions, "Return 은 시트의 '로그인 완료, 다음' 을 눌러야 한다 (시트 뒤 파일 탭의 '옮기기' 가 아니라)")
+        // 연결 뒤에는 권한 단계 전에 판단 모델 고르기가 시트 안에 뜬다 (step 은 .login 그대로)
+        XCTAssertEqual(state.onboardingStep, .login, "판단 모델 고르기는 같은 시트 안의 단계다")
+        let text = Self.recognizedText(window.contentView!).filter { !$0.isWhitespace }
+        XCTAssertTrue(text.contains("판단모델을골라요"), "Return 은 시트의 '로그인 완료, 다음' 을 눌러 판단 모델 고르기로 가야 한다 (시트 뒤 파일 탭의 '옮기기' 가 아니라): \(text.prefix(200))")
     }
 
     func testSheetTakesFocusAwayFromATextFieldBehindIt() {

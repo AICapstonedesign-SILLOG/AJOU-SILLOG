@@ -7,7 +7,7 @@ struct TasksView: View {
     @EnvironmentObject private var state: AppState
     @State private var selectedTask: Int64?
     @State private var collapsed: Set<String> = []          // 접은 분야 폴더
-    @State private var fieldFilter: String?                 // 분야 막대에서 고른 분야 (다시 누르면 해제)
+    @State private var fieldFilter: Set<String> = []        // 분야 막대에서 고른 분야들 (다시 누르면 빠짐, 비면 전체)
     @State private var rowFrames: [Int64: CGRect] = [:]     // 업무 줄 위치(목록 좌표). 고른 줄 상자를 옮기는 데 씀
     @State private var boxTop: CGFloat = 0                  // 고른 줄 상자 위 모서리. 위아래를 따로 움직여 물방울처럼 늘었다 모임
     @State private var boxBottom: CGFloat = 0
@@ -143,8 +143,8 @@ struct TasksView: View {
 
     private var sidebar: some View {
         let fields = Self.fieldStats(state.taskList)
-        let filter = fields.contains { $0.name == fieldFilter } ? fieldFilter : nil           // 그 분야 업무가 없어졌으면 해제로 본다
-        let shown = filter.map { f in state.taskList.filter { ($0.field ?? Self.noField) == f } } ?? state.taskList   // 받은 순서(최근 활동 순) 그대로
+        let filter = fieldFilter.intersection(fields.map(\.name))                              // 그 분야 업무가 없어졌으면 무시
+        let shown = filter.isEmpty ? state.taskList : state.taskList.filter { filter.contains($0.field ?? Self.noField) }   // 받은 순서(최근 활동 순) 그대로
         let colors = Dictionary(uniqueKeysWithValues: fields.map { ($0.name, $0.color) })
         return VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 14) {
@@ -188,26 +188,111 @@ struct TasksView: View {
         .background(Brand.paper)                                                         // 업무 목록 바탕: 아이콘 줄과 본문 사이 톤
     }
 
-    /// 분야 비율 막대: 분야마다 업무 수에 비례한 둥근 조각. 누르면 그 분야만, 다시 누르면 전체
-    private func fieldBar(_ fields: [FieldStat], filter: String?) -> some View {
-        GeometryReader { geo in
+    /// 분야 비율 막대: 분야마다 업무 수에 비례한 둥근 조각. 누르면 넣고 빼며(여러 개), 고른 분야는 아래로 늘어나 종류 나무가 펼쳐진다
+    private func fieldBar(_ fields: [FieldStat], filter: Set<String>) -> some View {
+        let sel = fields.filter { filter.contains($0.name) }
+        let rows = sel.map { Self.typeRows(state.taskList, field: $0.name) }
+        let longest = rows.map(\.count).max() ?? 1
+        let treeH: CGFloat = 46 + CGFloat(max(longest, 1) - 1) * 26 + 14
+        return GeometryReader { geo in
             let total = CGFloat(fields.reduce(0) { $0 + $1.count })
             let room = geo.size.width - 3 * CGFloat(fields.count - 1)
-            HStack(spacing: 3) {
-                ForEach(fields) { field in
-                    Button { fieldFilter = filter == field.name ? nil : field.name } label: {
-                        RoundedRectangle(cornerRadius: 4).fill(field.color)
-                            .opacity(filter == nil || filter == field.name ? 1 : 0.28)
-                            .frame(width: max(8, room * CGFloat(field.count) / total), height: 8)
-                            .contentShape(Rectangle().inset(by: -4))
+            let widths = fields.map { max(8, room * CGFloat($0.count) / total) }
+            let starts: [CGFloat] = widths.indices.map { i in widths[..<i].reduce(CGFloat(0), +) + 3 * CGFloat(i) }
+            ZStack(alignment: .topLeading) {
+                HStack(spacing: 3) {
+                    ForEach(Array(fields.enumerated()), id: \.element.id) { i, field in
+                        let on = filter.contains(field.name)
+                        Button {
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                                if on { fieldFilter.remove(field.name) } else { fieldFilter.insert(field.name) }
+                            }
+                        } label: {
+                            RoundedRectangle(cornerRadius: 4).fill(field.color)
+                                .opacity(filter.isEmpty || on ? 1 : 0.28)
+                                .frame(width: widths[i], height: 8)
+                                .contentShape(Rectangle().inset(by: -4))
+                        }
+                        .buttonStyle(.plain)
+                        .help("\(field.name) \(field.count)개")
+                        .accessibilityLabel("\(field.name) 분야, 업무 \(field.count)개, \(on ? "골라짐" : "안 골라짐")")
                     }
-                    .buttonStyle(.plain)
-                    .help("\(field.name) \(field.count)개")
-                    .accessibilityLabel("\(field.name) 분야, 업무 \(field.count)개")
+                }
+                if sel.isEmpty {
+                    Text("막대를 누르면 종류가 펼쳐져요. 여러 개 고를 수 있어요.")
+                        .font(Brand.suit(10.5)).foregroundStyle(Color(hex: 0x8C837C)).lineLimit(1)
+                        .offset(y: 16)
+                }
+                ForEach(Array(sel.enumerated()), id: \.element.id) { k, field in
+                    let i = fields.firstIndex { $0.id == field.id } ?? 0
+                    let colW = geo.size.width / CGFloat(sel.count)
+                    let left = CGFloat(k) * colW
+                    fieldTree(field, rows: rows[k], a: starts[i], b: starts[i] + widths[i], left: left, colW: colW)
+                        .offset(y: 8)
+                        .transition(.scale(scale: 0.01, anchor: .top).combined(with: .opacity))
                 }
             }
         }
-        .frame(height: 8)
+        .frame(height: 8 + (sel.isEmpty ? 22 : treeH))
+    }
+
+    /// 그 분야 업무의 종류별 개수: 많은 순, 최대 4개, 넘치면 마지막에 "외 N". 종류가 비었거나 분야와 같으면 세지 않는다
+    static func typeRows(_ tasks: [TaskSummary], field: String) -> [(String, Int)] {
+        var counts: [String: Int] = [:]
+        for t in tasks where (t.field ?? noField) == field {
+            if let type = t.taskType, !type.isEmpty, type != field { counts[type, default: 0] += 1 }
+        }
+        let sorted = counts.sorted { ($0.value, $1.key) > ($1.value, $0.key) }
+        var rows = sorted.prefix(4).map { ($0.key, $0.value) }
+        if sorted.count > 4 { rows.append(("외 \(sorted.count - 4)", sorted.dropFirst(4).reduce(0) { $0 + $1.value })) }
+        return rows
+    }
+
+    /// 막대 조각(a..b) 아래로 늘어난 목과 동그라미, 종류 가지와 알약. 좌표는 막대 아래 끝이 y=0
+    private func fieldTree(_ field: FieldStat, rows: [(String, Int)], a: CGFloat, b: CGFloat, left: CGFloat, colW: CGFloat) -> some View {
+        let cx = max(a + 12, left + 12)
+        let avail = max(20, left + colW - (cx + 14) - 4)
+        let count = TasksView.fieldCount(state.taskList, field.name)
+        let lastY = 46 + CGFloat(max(rows.count, 1) - 1) * 26
+        return ZStack(alignment: .topLeading) {
+            Path { p in
+                p.move(to: CGPoint(x: a, y: -2))
+                p.addCurve(to: CGPoint(x: cx - 6, y: 18), control1: CGPoint(x: a, y: 9), control2: CGPoint(x: cx - 7, y: 8))
+                p.addLine(to: CGPoint(x: cx + 6, y: 18))
+                p.addCurve(to: CGPoint(x: b, y: -2), control1: CGPoint(x: cx + 7, y: 8), control2: CGPoint(x: b, y: 9))
+                p.closeSubpath()
+            }.fill(field.color)
+            Circle().fill(field.color).frame(width: 22, height: 22).offset(x: cx - 11, y: 15)
+            Text("\(count)").font(Brand.suit(10, .bold)).foregroundStyle(.white).offset(x: cx - 11, y: 15).frame(width: 22, height: 22)
+            if !rows.isEmpty {
+                Path { p in
+                    p.move(to: CGPoint(x: cx, y: 37))
+                    p.addLine(to: CGPoint(x: cx, y: lastY - 6))
+                    p.addQuadCurve(to: CGPoint(x: cx + 6, y: lastY), control: CGPoint(x: cx, y: lastY))
+                    p.addLine(to: CGPoint(x: cx + 12, y: lastY))
+                    for i in 0..<(rows.count - 1) {
+                        let y = 46 + CGFloat(i) * 26
+                        p.move(to: CGPoint(x: cx, y: y)); p.addLine(to: CGPoint(x: cx + 12, y: y))
+                    }
+                }
+                .stroke(field.color.opacity(0.55), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+            }
+            ForEach(Array(rows.enumerated()), id: \.offset) { i, row in
+                HStack(spacing: 5) {
+                    Text(row.0).font(Brand.suit(11.5, .medium)).foregroundStyle(Brand.ink).lineLimit(1)
+                    Text("\(row.1)").font(Brand.suit(11)).foregroundStyle(Brand.gray).lineLimit(1)
+                }
+                .padding(.vertical, 3).padding(.horizontal, 9)
+                .background(Capsule().fill(field.color.opacity(0.13)))
+                .frame(maxWidth: avail, alignment: .leading)
+                .frame(height: 20)
+                .offset(x: cx + 14, y: 46 + CGFloat(i) * 26 - 10)
+            }
+        }
+    }
+
+    private static func fieldCount(_ tasks: [TaskSummary], _ name: String) -> Int {
+        tasks.filter { ($0.field ?? noField) == name }.count
     }
 
     /// 업무 점(10pt)들의 위치를 모아 첫 점부터 마지막 점까지 점선(1.5pt, 3/4)을 긋는다

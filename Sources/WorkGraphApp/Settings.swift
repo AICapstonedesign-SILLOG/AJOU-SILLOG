@@ -20,6 +20,11 @@ struct AppSettings: Codable, Equatable {
     var ajouAPIKey = ""
     var ajouModel = AppSettings.ajouDefaultModel
     var chatAjouModel = AppSettings.ajouDefaultModel
+    /// 판단 모델(선택): "none" = 정리 모델이 판단, "jev" = Jev API(자기 키), "ajou" = 아주대 LLM 의 jev-latest(아주대 키)
+    var judgeProvider = "none"
+    var jevAPIKey = ""
+    /// 채팅 모델을 정리 모델과 같게 쓴다(기본). 끄면 chatProvider 와 채팅 모델을 따로 고른다
+    var chatSameAsOrganize = true
     var batchEnabled = true
     var captureText = true
     var captureScreenshots = true
@@ -60,6 +65,11 @@ struct AppSettings: Codable, Equatable {
         ajouAPIKey = try c.decodeIfPresent(String.self, forKey: .ajouAPIKey) ?? d.ajouAPIKey
         ajouModel = try c.decodeIfPresent(String.self, forKey: .ajouModel) ?? d.ajouModel
         chatAjouModel = try c.decodeIfPresent(String.self, forKey: .chatAjouModel) ?? d.chatAjouModel
+        judgeProvider = try c.decodeIfPresent(String.self, forKey: .judgeProvider) ?? d.judgeProvider
+        jevAPIKey = try c.decodeIfPresent(String.self, forKey: .jevAPIKey) ?? d.jevAPIKey
+        // 예전 사용자는 채팅을 따로 골라 두었을 수 있다: 저장값이 없으면 정리와 채팅 설정이 이미 같을 때만 '같게'로 본다
+        chatSameAsOrganize = try c.decodeIfPresent(Bool.self, forKey: .chatSameAsOrganize)
+            ?? (chatProvider == llmProvider && chatCodexModel == codexModel && chatAjouModel == ajouModel && chatModel == llmModel)
         // 예전에는 아주대 LLM 을 OpenAI 호환 서버 주소로만 구분했다: 그 주소면 아주대 LLM 방식으로 옮긴다
         if llmProvider == "openai", llmBaseURL.trimmingCharacters(in: .whitespaces) == Self.ajouBaseURL {
             llmProvider = "ajou"; ajouModel = llmModel; ajouAPIKey = llmAPIKey; llmBaseURL = d.llmBaseURL; llmAPIKey = ""
@@ -108,10 +118,25 @@ struct AppSettings: Codable, Equatable {
 
     /// 정리, 채팅이 API(아주대 LLM 또는 OpenAI 호환 서버)로 가는지. 아니면 ChatGPT 로그인
     var llmUsesAPI: Bool { llmProvider != "codex" }
-    var chatUsesAPI: Bool { chatProvider != "codex" }
+    /// 채팅이 실제로 쓰는 연결: '정리 모델과 같이'면 정리 연결을 그대로 쓴다
+    var effectiveChatProvider: String { chatSameAsOrganize ? llmProvider : chatProvider }
+    var chatUsesAPI: Bool { effectiveChatProvider != "codex" }
     /// API 로 갈 때 실제로 쓰는 주소, 모델, 키
     var llmEndpoint: (url: String, model: String, key: String) { llmProvider == "ajou" ? (Self.ajouBaseURL, ajouModel, ajouAPIKey) : (llmBaseURL, llmModel, llmAPIKey) }
-    var chatEndpoint: (url: String, model: String, key: String) { chatProvider == "ajou" ? (Self.ajouBaseURL, chatAjouModel, ajouAPIKey) : (chatBaseURL, chatModel, chatAPIKey) }
-    var chatModelName: String { chatUsesAPI ? chatEndpoint.model : chatCodexModel }
-    static func providerName(_ provider: String) -> String { ["ajou": "아주대 LLM API", "openai": "OpenAI 호환 서버"][provider] ?? "ChatGPT 계정(Codex)" }
+    var chatEndpoint: (url: String, model: String, key: String) {
+        if chatSameAsOrganize { return llmEndpoint }
+        return chatProvider == "ajou" ? (Self.ajouBaseURL, chatAjouModel, ajouAPIKey) : (chatBaseURL, chatModel, chatAPIKey)
+    }
+    var effectiveChatCodexModel: String { chatSameAsOrganize ? codexModel : chatCodexModel }
+    var chatModelName: String { chatUsesAPI ? chatEndpoint.model : effectiveChatCodexModel }
+    /// 판단 모델 연결. 안 쓰거나 키가 비어 있으면 nil (그때는 정리 모델이 판단한다)
+    var judgeEndpoint: JevEndpoint? {
+        switch judgeProvider {
+        case "jev": return jevAPIKey.isEmpty ? nil : JevEndpoint(url: JevEndpoint.typesafeURL, model: JevEndpoint.defaultModel, key: jevAPIKey)
+        case "ajou": return ajouAPIKey.isEmpty ? nil : JevEndpoint(url: Self.ajouBaseURL + "/decisions/", model: JevEndpoint.defaultModel, key: ajouAPIKey)
+        default: return nil
+        }
+    }
+    static let jevSite = URL(string: "https://typesafe.ai")!
+    static func providerName(_ provider: String) -> String { ["ajou": "아주대 LLM API", "openai": "API"][provider] ?? "ChatGPT 구독" }
 }

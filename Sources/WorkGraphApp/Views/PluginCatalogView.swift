@@ -216,7 +216,7 @@ struct PluginCatalogView: View {
                             Text(plugin.summary).font(Brand.suit(10)).foregroundStyle(Brand.gray)
                         }
                         Spacer()
-                        Toggle("", isOn: googleBinding(plugin.id)).toggleStyle(.switch).labelsHidden().controlSize(.small)
+                        Toggle("", isOn: googleBinding(plugin.id)).toggleStyle(.switch).labelsHidden().controlSize(.small).tint(Brand.accentDark)
                     }.padding(.vertical, 16)
                         .overlay(alignment: .bottom) { Rectangle().fill(Brand.line).frame(height: 1) }
                 }

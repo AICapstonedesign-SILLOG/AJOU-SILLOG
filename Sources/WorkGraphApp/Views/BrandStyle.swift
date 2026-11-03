@@ -17,6 +17,12 @@ enum Brand {
     static let badgeFill = Color(hex: 0xEAE3DC)    // 작은 배지와 계정 동그라미 바탕
     static let badgeText = Color(hex: 0x5E4B40)    // 배지 글씨
     static let pillFill = Color(hex: 0xE6E1DB)     // 창 머리 보조 알약 바탕
+    // 고른 알약(칩, Figma ST-03). 고른 것: chipSelectedFill 바탕 + 1pt chipSelectedBorder 테두리 + chipSelectedText 글자(굵기 medium).
+    // 안 고른 것: chipFill 바탕 + tabText 글자. 진한 갈색 채움과 흰 글자는 주요 동작 단추(accent)만 쓴다
+    static let chipFill = Color(hex: 0xF3F1EF)             // 안 고른 알약 바탕
+    static let chipSelectedFill = Color(hex: 0xEAE3DC)     // 고른 알약 바탕
+    static let chipSelectedBorder = Color(hex: 0xCCBEB3)   // 고른 알약 1pt 테두리
+    static let chipSelectedText = Color(hex: 0x3D2F27)     // 고른 알약 글자
     static let connected = Color(hex: 0x3D9B6B)    // 연결됨 점
     /// 유리 바탕(창 뒤 바탕화면 흐림) 위에 얹는 흰색 양. 낮을수록 바탕화면이 더 비친다
     static let glassTint = 0.08
@@ -109,6 +115,8 @@ extension BrandPageHeader where Trailing == EmptyView {
 /// badge 가 0 보다 크면 탭 이름 옆에 하늘색 숫자 (대기 중인 파일 제안)
 struct TextTabs<Item: Hashable & Identifiable & CaseIterable & RawRepresentable>: View where Item.RawValue == String, Item.AllCases: RandomAccessCollection {
     @Binding var selection: Item
+    /// 고른 탭 알약 바탕. 기록 자료는 기본값(#F6F5F4), 설정과 활동 로그는 창 머리 색(#EFECE9) (Figma 구역 탭)
+    var selectedFill: Color = ChatPalette.soft
     var badge: (Item) -> Int = { _ in 0 }
 
     var body: some View {
@@ -121,7 +129,7 @@ struct TextTabs<Item: Hashable & Identifiable & CaseIterable & RawRepresentable>
                         if badge(item) > 0 { Text("\(badge(item))").font(Brand.jost(12)).foregroundStyle(Brand.blue) }
                     }
                     .padding(.horizontal, 13).frame(height: 32)
-                    .background(Capsule().fill(on ? ChatPalette.soft : .clear))
+                    .background(Capsule().fill(on ? selectedFill : .clear))
                     .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
@@ -335,7 +343,6 @@ private struct ThinScrollLight: ViewModifier {
 
     func body(content: Content) -> some View {
         if #available(macOS 15, *) {
-            let _ = FileHandle.standardError.write("DBG body\n".data(using: .utf8)!)
             content
                 .scrollIndicators(.hidden)
                 .background(HideLegacyScroller())
@@ -343,7 +350,6 @@ private struct ThinScrollLight: ViewModifier {
                     Metrics(offset: g.contentOffset.y, content: g.contentSize.height, view: g.containerSize.height)
                 } action: { old, new in
                     let moved = old.offset != new.offset
-                    FileHandle.standardError.write("DBG scroll \(new)\n".data(using: .utf8)!)
                     m = new
                     if moved { flash() }
                 }
@@ -389,12 +395,6 @@ private struct HideLegacyScroller: NSViewRepresentable {
         DispatchQueue.main.async {
             guard view.window != nil else { return }
             let mine = view.convert(view.bounds, to: nil)
-            func dump(_ v: NSView, _ d: Int) {
-                if v is NSScrollView || v is NSScroller { FileHandle.standardError.write("DBG \(d) \(type(of: v)) \(v.convert(v.bounds, to: nil)) hidden=\(v.isHidden)\n".data(using: .utf8)!) }
-                for s in v.subviews { dump(s, d + 1) }
-            }
-            FileHandle.standardError.write("DBG mine \(mine)\n".data(using: .utf8)!)
-            if let c = view.window?.contentView { dump(c, 0) }
             var up: NSView? = view.superview
             for _ in 0..<4 {
                 guard let root = up else { return }

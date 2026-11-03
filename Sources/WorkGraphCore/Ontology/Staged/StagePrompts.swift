@@ -82,6 +82,7 @@ public enum StagePrompt {
        Topics: what the work is ABOUT (a concept, technique, technology, course subject or problem domain). NOT the app, website or platform used, not the project name, no filler.
     3. problems: only when the rows show an error or blocker (build error, failed command, searching an error message). Set resolved_by_row to the row of the page that solved it when that is evident.
     4. later_items: requests or todos that arrived in these rows but were not handled.
+    5. calendar_events: the user's own upcoming schedule that appears in the rows: an appointment, deadline, exam, presentation, class or meeting with a specific date (use NOW to resolve "tomorrow" or "next Friday"). Give a short Korean title, date as yyyy-MM-dd, and start_time/end_time as HH:mm only when shown. Skip dates in the past, other people's schedules, and general dates in postings, news or notices that are not the user's own commitment. When unsure, leave it out; an empty array is normal.
 
     Cover every row exactly once in resources. Use ranges like "5-12" only for consecutive rows of one task with the same value.
     Always answer by calling describe_work. Do not write prose.

@@ -71,10 +71,24 @@ public struct ChatConversation: Codable, Identifiable, Sendable {
     public var scope = ChatScope()
     public var projectID: String?
     public var updatedAt = Date().timeIntervalSince1970
+    /// nil이면 고정 안 됨. 원본은 app_conversations.pinned_at 칼럼이다.
+    public var pinnedAt: Double?
     /// Args: 없음.
     /// Returns: 고유 ID를 가진 빈 대화.
     /// Raises: 없음.
     public init() {}
+}
+
+public struct ChatSearchHit: Identifiable, Equatable, Sendable {
+    public var conversationID: String
+    public var title: String
+    public var snippet: String
+    public var updatedAt: Double
+    public var id: String { conversationID }
+
+    public init(conversationID: String, title: String, snippet: String, updatedAt: Double) {
+        self.conversationID = conversationID; self.title = title; self.snippet = snippet; self.updatedAt = updatedAt
+    }
 }
 
 public struct ConversationMessage: Codable, Identifiable, Sendable {
@@ -165,15 +179,25 @@ public struct ChatStore: Sendable {
         }
     }
 
+    /// Args: migrator는 v16까지 등록된 마이그레이션 목록이다.
+    /// Returns: 없음. 대화 고정 칼럼 단계를 등록한다. GRDB는 등록 순서대로 돌리므로 v16 뒤에 불러야 한다.
+    /// Raises: 등록 시 없음. 적용 시 DB 오류를 전달한다.
+    static func migratePins(_ migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("v17-chat-pins") { db in
+            try db.execute(sql: "ALTER TABLE app_conversations ADD COLUMN pinned_at REAL")
+        }
+    }
+
     /// Args: 없음.
     /// Returns: 최신순 대화 목록.
     /// Raises: DB·디코딩 오류.
     public func conversations() throws -> [ChatConversation] {
         try db.writer.read { conn in
-            try Row.fetchAll(conn, sql: "SELECT payload, project_id FROM app_conversations ORDER BY updated_at DESC")
+            try Row.fetchAll(conn, sql: "SELECT payload, project_id, pinned_at FROM app_conversations ORDER BY updated_at DESC")
                 .map { row in
                     var conversation = try JSONDecoder().decode(ChatConversation.self, from: Data((row["payload"] as String).utf8))
                     conversation.projectID = row["project_id"]
+                    conversation.pinnedAt = row["pinned_at"]
                     return conversation
                 }
         }
@@ -207,6 +231,56 @@ public struct ChatStore: Sendable {
         try db.writer.write { conn in
             try conn.execute(sql: "INSERT INTO app_conversations (id, updated_at, payload, project_id) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET updated_at = excluded.updated_at, payload = excluded.payload",
                              arguments: [conversation.id, conversation.updatedAt, payload, conversation.projectID])
+        }
+    }
+
+    /// Args: pinned는 고정 여부, time은 고정한 시각이다.
+    /// Returns: 없음. pinned_at만 바꾸고 updated_at은 그대로 둔다.
+    /// Raises: DB 쓰기 오류.
+    public func setPinned(_ conversationID: String, pinned: Bool, at time: Double = Date().timeIntervalSince1970) throws {
+        try db.writer.write { conn in
+            try conn.execute(sql: "UPDATE app_conversations SET pinned_at = ? WHERE id = ?", arguments: [pinned ? time : nil, conversationID])
+        }
+    }
+
+    /// Args: query는 찾을 글, limit는 최대 대화 수이다.
+    /// Returns: 제목이나 완료 메시지 본문에 query가 든 대화(대화당 한 줄, 최신순). 빈 검색어는 [].
+    /// Raises: DB 조회 오류.
+    public func searchConversations(_ query: String, limit: Int = 30) throws -> [ChatSearchHit] {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return [] }
+        let like = "%" + q.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "%", with: "\\%").replacingOccurrences(of: "_", with: "\\_") + "%"
+        return try db.writer.read { conn in
+            let rows = try Row.fetchAll(conn, sql: """
+                SELECT c.id, json_extract(c.payload, '$.title') AS title, c.updated_at FROM app_conversations c
+                WHERE json_extract(c.payload, '$.title') LIKE ?1 ESCAPE '\\'
+                   OR EXISTS (SELECT 1 FROM app_messages m WHERE m.conversation_id = c.id
+                      AND json_extract(m.payload, '$.status') = 'complete' AND json_extract(m.payload, '$.text') LIKE ?1 ESCAPE '\\')
+                ORDER BY c.updated_at DESC LIMIT ?2
+                """, arguments: [like, limit])
+            return try rows.map { row in
+                let id: String = row["id"]
+                let hit = try String.fetchOne(conn, sql: """
+                    SELECT json_extract(payload, '$.text') FROM app_messages WHERE conversation_id = ?1
+                      AND json_extract(payload, '$.status') = 'complete' AND json_extract(payload, '$.text') LIKE ?2 ESCAPE '\\'
+                    ORDER BY created_at DESC, rowid DESC LIMIT 1
+                    """, arguments: [id, like])
+                var snippet: String
+                if let hit {
+                    let start = hit.range(of: q, options: .caseInsensitive)?.lowerBound ?? hit.startIndex
+                    let from = hit.index(start, offsetBy: -20, limitedBy: hit.startIndex) ?? hit.startIndex
+                    snippet = String(hit[from...].prefix(120))
+                } else {
+                    let last = try String.fetchOne(conn, sql: """
+                        SELECT json_extract(payload, '$.text') FROM app_messages WHERE conversation_id = ?
+                          AND json_extract(payload, '$.status') = 'complete' AND json_extract(payload, '$.text') != ''
+                        ORDER BY created_at DESC, rowid DESC LIMIT 1
+                        """, arguments: [id])
+                    snippet = String((last ?? "").prefix(120))
+                }
+                snippet = snippet.replacingOccurrences(of: "\r\n", with: " ").replacingOccurrences(of: "\n", with: " ")
+                return ChatSearchHit(conversationID: id, title: row["title"] ?? "", snippet: snippet, updatedAt: row["updated_at"])
+            }
         }
     }
 

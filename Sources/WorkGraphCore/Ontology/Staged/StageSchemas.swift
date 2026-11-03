@@ -29,6 +29,7 @@ public struct DescribeResult: Equatable, Sendable {
     public var taskTypes: [String: String] = [:]
     public var problems: [AssignmentPatch.ProblemRef] = []
     public var laterItems: [AssignmentPatch.LaterRef] = []
+    public var calendarEvents: [AssignmentPatch.CalendarRef] = []
     public init() {}
 }
 
@@ -112,6 +113,14 @@ public enum StageTool {
                     "properties": .object(["row": rowNumber, "text": .object(["type": "string"])]),
                     "required": .array(["row", "text"]),
                 ])]),
+                "calendar_events": .object(["type": "array", "description": "기록에 나온 사용자 본인의 앞으로의 일정. 없으면 빈 배열", "items": .object([
+                    "type": "object",
+                    "properties": .object(["row": rowNumber, "title": .object(["type": "string", "description": "짧은 한국어 제목"]),
+                                           "date": .object(["type": "string", "description": "yyyy-MM-dd"]),
+                                           "start_time": .object(["type": "string", "description": "HH:mm, 시간이 안 나오면 생략"]),
+                                           "end_time": .object(["type": "string", "description": "HH:mm, 안 나오면 생략"])]),
+                    "required": .array(["row", "title", "date"]),
+                ])]),
             ]),
             "required": .array(["resources", "work"]),
         ]))
@@ -188,6 +197,7 @@ public enum StageDecode {
         }
         result.problems = decode([AssignmentPatch.ProblemRef].self, root["problems"]) ?? []
         result.laterItems = decode([AssignmentPatch.LaterRef].self, root["later_items"]) ?? []
+        result.calendarEvents = decode([AssignmentPatch.CalendarRef].self, root["calendar_events"]) ?? []
         return result
     }
 }

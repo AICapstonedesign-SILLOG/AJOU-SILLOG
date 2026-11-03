@@ -145,6 +145,8 @@ final class AppState: ObservableObject {
             loadRetentionState()
             let cardsOn = settings.screenCards && settings.captureScreenshots
             Task { await batcher.setScreenCards(cardsOn) }
+            let judge = settings.judgeEndpoint
+            Task { await batcher.setJudge(judge) }
             // 앱을 시작할 때 분야가 없거나 종류가 옛 판인 업무를 정리한다 (처음 한 번은 기존 업무 전부). 붙였으면 그래프를 새로 그린다
             Task { [weak self] in
                 if await batcher.assignThemes() != nil { self?.graphVersion += 1 }
@@ -348,7 +350,7 @@ final class AppState: ObservableObject {
             let url = URL(string: e.url.trimmingCharacters(in: .whitespaces)) ?? URL(string: "http://localhost:5010/v1")!
             return .model(OpenAICompatClient(baseURL: url, model: e.model, apiKey: e.key.isEmpty ? nil : e.key))
         }
-        return .codex(CodexAppServerClient(auth: codexAuth, model: settings.chatCodexModel))
+        return .codex(CodexAppServerClient(auth: codexAuth, model: settings.effectiveChatCodexModel))
     }
 
     /// Args: 없음.
@@ -397,7 +399,7 @@ final class AppState: ObservableObject {
     /// 선택한 ChatGPT 연결만 확인한다. 취소된 검사 결과는 새 로그인·검사에 적용하지 않는다.
     func loadCodexModels(force: Bool = false) async {
         let checkBatch = settings.llmProvider == "codex" && (force || codexModels.isEmpty)
-        let checkChat = settings.chatProvider == "codex" && (force || chatCodexModels.isEmpty)
+        let checkChat = settings.effectiveChatProvider == "codex" && (force || chatCodexModels.isEmpty)
         guard codexStatus != .loggedOut, !codexModelsLoading, checkBatch || checkChat else { return }
         let id = UUID()
         codexModelTaskID = id
@@ -446,9 +448,12 @@ final class AppState: ObservableObject {
                     guard codexModelTaskID == id else { return }
                     chatCodexModels = result.models
                     chatCodexModelsError = verificationError(result, empty: "현재 연결에서 사용할 수 있는 채팅 모델이 없습니다.")
+                    let chatModel = settings.effectiveChatCodexModel
                     if result.isComplete, let first = result.models.first,
-                       !result.models.contains(where: { $0.slug == settings.chatCodexModel }),
-                       !result.failures.contains(where: { $0.model.slug == settings.chatCodexModel }) {
+                       !result.models.contains(where: { $0.slug == chatModel }),
+                       !result.failures.contains(where: { $0.model.slug == chatModel }) {
+                        // '정리 모델과 같이'인데 정리 모델이 채팅에서 안 되면 채팅만 '따로 고르기'로 돌려 확인된 모델로 보낸다
+                        if settings.chatSameAsOrganize { settings.chatProvider = settings.llmProvider; settings.chatSameAsOrganize = false }
                         settings.chatCodexModel = result.models.first { $0.slug == CodexResponsesClient.defaultModel }?.slug ?? first.slug
                         applySettings()
                     }
@@ -609,7 +614,9 @@ final class AppState: ObservableObject {
 
     /// 채팅 화면에서 모델 바꾸기: 다음 메시지부터 그 모델로 보낸다. 설정 화면을 거치지 않으니 여기서 저장한다 (업무 정리 모델은 그대로)
     func selectChatModel(_ slug: String) {
-        guard !slug.isEmpty, settings.chatCodexModel != slug else { return }
+        guard !slug.isEmpty, settings.effectiveChatCodexModel != slug else { return }
+        // '정리 모델과 같이'였으면 채팅에서 다른 모델을 고르는 순간 '따로 고르기'로 바뀐다
+        if settings.chatSameAsOrganize { settings.chatProvider = settings.llmProvider; settings.chatSameAsOrganize = false }
         settings.chatCodexModel = slug
         if !isPreview { settings.save() }
     }
@@ -619,6 +626,7 @@ final class AppState: ObservableObject {
         NSApp.setActivationPolicy(settings.showDockIcon ? .regular : .accessory)
         let collectorSettings = settings.collector
         let client = makeClient()
+        let judge = settings.judgeEndpoint
         let cardsOn = settings.screenCards && settings.captureScreenshots
         if let db {
             suggester = FolderSuggester(db: db, llm: makeQuickClient())
@@ -628,6 +636,7 @@ final class AppState: ObservableObject {
         Task { [coordinator, batcher, consolidator] in
             await coordinator?.update(settings: collectorSettings)
             await batcher?.setLLM(client)
+            await batcher?.setJudge(judge)
             await batcher?.setScreenCards(cardsOn)
             await consolidator?.setLLM(client)
         }

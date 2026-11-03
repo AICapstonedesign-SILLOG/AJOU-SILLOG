@@ -9,16 +9,14 @@ struct ChatView: View {
     /// 아직 업무로 정리되지 않은 기록 수: 범위를 좁히면 이 기록은 빠진다고 알리고 지금 정리를 권한다
     var pendingRecords = 0
     var tidyNow: () -> Void = {}
+    @State private var pane: ChatPane = .chat
     @State private var artifact: ChatArtifact?
     @State private var source: ChatSource?
     @State private var pendingAutomation: ConversationMessage?
     @State private var showSchedules = false
-    @State private var showPlugins = false
-    @State private var showSources = false
-    @State private var showLibraryPicker = false
+    @State private var showSearch = false
+    @State private var previewItem: ChatLibraryItem?
     @State private var sidebarVisible = true
-    @State private var inputHeight: CGFloat = 56
-    @State private var hoveredConversation: String?
     @State private var editingConversation: ChatConversation?
     @State private var deletingConversation: ChatConversation?
     @State private var conversationName = ""
@@ -27,17 +25,37 @@ struct ChatView: View {
     @State private var selectedQuestionID: String?
     @State private var hoveredQuestionID: String?
     @State private var expandedSources: Set<String> = []
+    @State private var expandedSteps: Set<String> = []     // 끝난 답변의 단계 목록: 기본 접힘
+    @State private var collapsedSteps: Set<String> = []    // 실행 중 답변의 단계 목록: 기본 펼침(CH-15)
 
+    /// 목록(261, 고정 폭) + 1pt 선 + 본문. 목록을 접으면(CH-30) 본문만 남는다.
     private var layout: some View {
-        Group {
+        HStack(spacing: 0) {
             if sidebarVisible {
-                HSplitView {
-                    sidebar.frame(minWidth: 200, idealWidth: 240, maxWidth: 260)
-                    mainContent.frame(minWidth: 500)
-                }
-            } else {
-                mainContent
+                ChatSidebar(chat: chat, pane: $pane, isSearching: showSearch,
+                            onSearch: { showSearch = true },
+                            onSchedules: { showSchedules = true },
+                            onCollapse: { sidebarVisible = false },
+                            onRename: { item in editingConversation = item; conversationName = item.title; showRename = true },
+                            onDelete: { item in deletingConversation = item; showDelete = true })
+                    .frame(width: ChatPalette.sidebarWidth)
+                Rectangle().fill(Brand.line).frame(width: 1)
             }
+            mainContent
+        }
+        .overlay { if showSearch { searchOverlay } }
+    }
+
+    /// 창을 어둡게 하고 560 폭 검색 창을 위에서 58 내려 가운데에 띄운다(Figma CH-41, 창 기준 y 110 − 머리 52).
+    private var searchOverlay: some View {
+        ZStack(alignment: .top) {
+            Color.black.opacity(0.08).contentShape(Rectangle()).onTapGesture { showSearch = false }
+            ChatSearchPanel(chat: chat,
+                            onOpen: { item in chat.select(item); pane = .chat; showSearch = false },
+                            onClose: { showSearch = false })
+                .frame(width: 560).padding(.top, 58)
+                .offset(x: -NavRail.width / 2)     // 덮개는 아이콘 줄 오른쪽 본문 기준이라, 아이콘 줄 폭 절반만큼 당겨 창 가운데에 둔다
+            Button("") { showSearch = false }.keyboardShortcut(.cancelAction).opacity(0).frame(width: 0, height: 0)
         }
     }
 
@@ -47,15 +65,11 @@ struct ChatView: View {
         .sheet(item: $source) { ChatSourceSheet(source: $0) }
         .sheet(item: $pendingAutomation) { message in automationApproval(message) }
         .sheet(isPresented: $showSchedules) { ChatSchedulesView(chat: chat) }
-    }
-
-    private var librarySheets: some View {
-        sheets
-        .sheet(isPresented: $showLibraryPicker) { LibraryPicker(library: library) { chat.attachLibraryItem($0) } }
+        .sheet(item: $previewItem) { LibraryPreview(library: library, item: $0) }
     }
 
     var body: some View {
-        librarySheets
+        sheets
         .alert("이름 바꾸기", isPresented: $showRename) {
             TextField("대화 이름", text: $conversationName)
             Button("취소", role: .cancel) {}
@@ -80,35 +94,60 @@ struct ChatView: View {
 
     private var mainContent: some View {
         Group {
-            if showPlugins {
-                PluginCatalogView(onClose: { showPlugins = false }) { id, example in
+            switch pane {
+            case .chat:
+                chatContent
+            case .allConversations:
+                ChatAllConversationsView(chat: chat,
+                                         onOpen: { chat.select($0); pane = .chat },
+                                         onNew: { chat.newConversation(); pane = .chat })
+            case .projects:
+                ProjectListView(projects: chat.projects, chat: chat,
+                                onOpen: { project in chat.newConversation(projectID: project.id); pane = .project(project.id) })
+            case .project(let id):
+                if let project = chat.projects.projects.first(where: { $0.id == id }) {
+                    ProjectOverview(projects: chat.projects, chat: chat, project: project,
+                                    onConversation: { chat.select($0); pane = .chat },
+                                    composer: ChatComposer(chat: chat, library: library, modelName: modelName, openSettings: openSettings,
+                                                           pendingRecords: pendingRecords, tidyNow: tidyNow,
+                                                           onOpenPlugins: { pane = .plugins },
+                                                           onSent: { pane = .chat }, showsNotice: false))
+                } else {
+                    Color.white.onAppear { pane = .projects }     // 삭제된 프로젝트
+                }
+            case .results:
+                ChatResultsView(library: library)
+            case .plugins:
+                PluginCatalogView(onClose: { pane = .chat }) { id, example in
                     chat.newConversation()
                     if id == "github" { chat.current.scope.useGitHub = true }
                     else { chat.current.scope.plugins.append(id) }
                     chat.saveScope()
                     chat.draft = example
-                    showPlugins = false
+                    pane = .chat
                 }
-            } else {
-                chatContent
             }
-        }
+        }.frame(maxWidth: .infinity, maxHeight: .infinity).background(.white)
     }
 
     private var chatContent: some View {
         VStack(spacing: 0) {
-            header
+            if !chat.messages.isEmpty || !sidebarVisible { header }
             if let active = chat.activeMessage, active.conversationID != chat.current.id {
+                // CH-14: 본문 600 열 안, 머리에서 떨어진 47 높이 띠, 아래 줄 하나, '이동'은 글자 링크
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
                     Text("다른 대화에서 작업 중").font(Brand.suit(11)).foregroundStyle(Brand.tabText)
-                    Button("이동") {
+                    Button {
                         if let item = chat.conversations.first(where: { $0.id == active.conversationID }) { chat.select(item) }
-                    }.buttonStyle(BrandButtonStyle())
+                    } label: { Text("이동").font(Brand.suit(11, .medium)).foregroundStyle(Brand.ink) }
+                        .buttonStyle(.plain)
                     Spacer()
-                }.padding(.horizontal, 28).padding(.vertical, 8)
+                }.padding(.horizontal, 28).frame(height: 47)
                     .background(ChatPalette.soft)
                     .overlay(alignment: .bottom) { Rectangle().fill(Brand.line).frame(height: 1) }
+                    .frame(maxWidth: ChatPalette.columnWidth).frame(maxWidth: .infinity)
+                    .padding(.horizontal, 32).padding(.top, 24).padding(.leading, showsQuestionMarks ? 44 : 0)
             }
             if chat.messages.isEmpty {
                 emptyState
@@ -116,135 +155,94 @@ struct ChatView: View {
                 conversation
             }
             if let error = chat.error {
+                // CH-17: 입력칸과 같은 600 열, 위아래 줄, 입력칸 위 8 간격
                 Label(error, systemImage: "exclamationmark.circle")
                     .font(Brand.suit(11)).foregroundStyle(Brand.ink).textSelection(.enabled)
-                    .padding(.horizontal, 28).padding(.vertical, 10).frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 14).padding(.vertical, 10).frame(maxWidth: .infinity, alignment: .leading)
                     .background(ChatPalette.soft)
                     .overlay(alignment: .top) { Rectangle().fill(Brand.line).frame(height: 1) }
+                    .overlay(alignment: .bottom) { Rectangle().fill(Brand.line).frame(height: 1) }
+                    .frame(maxWidth: ChatPalette.columnWidth).frame(maxWidth: .infinity)
+                    .padding(.horizontal, 32).padding(.top, 8)
+                    .padding(.leading, showsQuestionMarks ? 44 : 0)
             }
-            composer
-        }.frame(maxWidth: .infinity, maxHeight: .infinity).background(.white)
+            if !chat.messages.isEmpty { composer }
+        }.frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background { if chat.messages.isEmpty { ChatStartBackground() } else { Color.white } }
     }
+
+    private var composer: some View {
+        ChatComposer(chat: chat, library: library, modelName: modelName, openSettings: openSettings,
+                     pendingRecords: pendingRecords, tidyNow: tidyNow, onOpenPlugins: { pane = .plugins })
+            .frame(maxWidth: ChatPalette.columnWidth).frame(maxWidth: .infinity)     // 대화 본문과 같은 폭
+            .padding(.horizontal, 32).padding(.top, 8).padding(.bottom, 14)
+            .padding(.leading, showsQuestionMarks ? 44 : 0)     // 질문 눈금(44)만큼 밀린 대화 본문과 같은 열
+            .background(.white)
+    }
+
+    /// 질문이 하나면 옮겨 갈 곳이 없어 눈금을 숨긴다.
+    private var showsQuestionMarks: Bool { chat.messages.filter({ $0.role == "user" }).count > 1 }
 
     /// Args: 없음.
-    /// Returns: 새 대화의 시작 화면. 무엇에 대해 이야기할지(모든 기록, 최근 업무, 분야) 바로 고르면 입력칸으로 간다.
+    /// Returns: 새 대화의 시작 화면(CH-01). 로고와 한 줄 인사, 입력칸, 최근 결과물 카드 3장.
     /// Raises: 없음.
     private var emptyState: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if let mark = Brand.wordmark {
-                Image(nsImage: mark).resizable().scaledToFit().frame(height: 19).padding(.leading, 8)
-            }
-            Text("쌓아 온 기록으로,\n다음 일을 시작해요.")
-                .font(Brand.suit(25)).tracking(-1).lineSpacing(0).foregroundStyle(Brand.ink)
-                .padding(.top, 20)
-            ChatStartChoices(chat: chat).padding(.top, 24)
-        }.frame(width: 440).frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private var sidebar: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        let results = library.results(limit: 3)
+        return VStack(spacing: 0) {
+            Spacer(minLength: 0)
             VStack(alignment: .leading, spacing: 0) {
-                HStack {
-                    Text("채팅").font(Brand.suit(23, .semibold)).tracking(-0.805).foregroundStyle(Brand.ink)
-                    Spacer()
-                    ChatTag(text: "일부")
+                HStack(spacing: 14) {
+                    Image(nsImage: NSApp.applicationIconImage).resizable().scaledToFit().frame(width: 36, height: 36)
+                    Text("쌓아 온 기록으로, 다음 일을 시작해요.")
+                        .font(Brand.suit(24)).tracking(-0.48).foregroundStyle(Brand.ink).lineLimit(1)
+                }.frame(maxWidth: .infinity)
+                ChatComposer(chat: chat, library: library, modelName: modelName, openSettings: openSettings,
+                             pendingRecords: pendingRecords, tidyNow: tidyNow, onOpenPlugins: { pane = .plugins },
+                             showsNotice: false)
+                    .padding(.top, 26)
+                if !results.isEmpty {
+                    HStack {
+                        Text("최근 결과물").font(Brand.suit(12)).foregroundStyle(Brand.tabText).padding(.leading, 4)
+                        Spacer()
+                        Button { pane = .results } label: {
+                            Text("모두 보기").font(Brand.suit(12)).foregroundStyle(Brand.tabText).contentShape(Rectangle())
+                        }.buttonStyle(.plain).padding(.trailing, 4)
+                    }.padding(.top, 36)
+                    HStack(spacing: 12) {
+                        ForEach(results) { item in
+                            ChatResultCard(library: library, item: item) { previewItem = $0 }
+                        }
+                    }.padding(.top, 12)
                 }
-                Button { chat.newConversation(); showPlugins = false } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "plus").font(.system(size: 12))
-                        Text("새 대화").font(Brand.suit(12, .medium))
-                    }.foregroundStyle(Brand.tabText).frame(maxWidth: .infinity).frame(height: 38)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(.white.opacity(0.33)))
-                        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Brand.line))
-                        .contentShape(Rectangle())
-                }.buttonStyle(.plain).padding(.top, 14)
-            }.padding(.horizontal, 24).padding(.top, 27).padding(.bottom, 20)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    Eyebrow("대화").padding(.horizontal, 12).padding(.top, 11).padding(.bottom, 14)
-                    LazyVStack(spacing: 5) {
-                        ForEach(chat.conversations) { item in conversationRow(item) }
-                    }
-                }.padding(.horizontal, 12).padding(.bottom, 12)
-            }
-            Button { showSchedules = true } label: {
-                HStack {
-                    Text("예약 작업")
-                    Spacer()
-                    Text("\(chat.automations.count)").font(Brand.jost(11)).foregroundStyle(Brand.gray)
-                    Image(systemName: "chevron.right").font(.system(size: 10))
-                }.font(Brand.suit(11)).foregroundStyle(Brand.tabText).padding(.horizontal, 19).frame(height: 51).contentShape(Rectangle())
-            }.buttonStyle(.plain)
-                .overlay(alignment: .top) { Rectangle().fill(Brand.hairline).frame(height: 1) }
-        }.frame(maxHeight: .infinity, alignment: .top)
-            .brandGlass()
+            }.frame(width: ChatPalette.columnWidth)
+            Spacer(minLength: 0)
+            Text("질문과 조회한 자료는 연결한 AI로 전송돼요. 웹 검색과 플러그인은 허용한 범위만 사용해요.")
+                .font(Brand.suit(9)).foregroundStyle(Brand.gray).lineLimit(1).padding(.bottom, 14)
+        }.frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func conversationRow(_ item: ChatConversation) -> some View {
-        let selected = !showPlugins && chat.current.id == item.id
-        return HStack(spacing: 0) {
-            Button { chat.select(item); showPlugins = false } label: {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(item.title).font(Brand.suit(11)).lineLimit(1).foregroundStyle(selected ? Brand.ink : Brand.tabText)
-                    if !item.scope.focus.isEmpty {                          // 업무·분야로 좁힌 대화는 그 이름을 작게
-                        Label(ChatFocusButton.summary(item.scope.focus), systemImage: "scope").font(Brand.suit(9)).foregroundStyle(Brand.gray).lineLimit(1)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 12).frame(height: 45).contentShape(Rectangle())
-            }.buttonStyle(.plain).help(item.title)
-            Menu { conversationActions(item) } label: { Image(systemName: "ellipsis").foregroundStyle(Brand.gray).frame(width: 28, height: 28) }
-                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-                .opacity(chat.current.id == item.id || hoveredConversation == item.id ? 1 : 0)
-                .help("대화 메뉴").accessibilityLabel("\(item.title) 대화 메뉴")
-        }.padding(.trailing, 5)
-            .background(selected || hoveredConversation == item.id ? Color.white.opacity(0.6) : .clear, in: RoundedRectangle(cornerRadius: 5))
-            .onHover { hoveredConversation = $0 ? item.id : nil }.contextMenu { conversationActions(item) }
-    }
-
+    /// 본문 머리(CH-02): 제목 하나, 밑줄 없음. 목록을 접었을 때(CH-30)만 목록 펼치기와 새 대화 아이콘이 제목 왼쪽에 붙는다.
     private var header: some View {
         HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 0) {
-                Text(chat.messages.isEmpty ? "새 대화" : chat.current.title).font(Brand.suit(16)).foregroundStyle(Brand.ink).lineLimit(1)
-                HStack(spacing: 12) {
-                    if !modelName.isEmpty { ChatModelMenu(name: modelName, fontSize: 10, openSettings: openSettings) }
-                    if !chat.messages.isEmpty { ChatFocusButton(chat: chat) }        // 새 대화는 첫 화면 나무에서 고른다
+            if !sidebarVisible {
+                // CH-30: 아이콘 중심 35, 64, 제목 시작 87 (아이콘 28 폭, 간격 1)
+                HStack(spacing: 1) {
+                    ChatIconButton(systemName: "sidebar.left", help: "대화 목록 표시 전환") { sidebarVisible = true }
+                    ChatIconButton(systemName: "square.and.pencil", help: "새 대화") { chat.newConversation(); pane = .chat }
                 }
             }
-            Spacer()
-            ChatIconButton(systemName: "sidebar.left", help: "대화 목록 표시 전환") { sidebarVisible.toggle() }
-            if !sidebarVisible {
-                ChatIconButton(systemName: "square.and.pencil", help: "새 대화") { chat.newConversation() }
+            if !chat.messages.isEmpty {
+                Text(chat.current.title).font(Brand.suit(14, .medium)).foregroundStyle(Brand.ink).lineLimit(1)
             }
-            ChatIconButton(systemName: "pencil", help: "대화 이름 바꾸기") {
-                editingConversation = chat.current; conversationName = chat.current.title; showRename = true
-            }.disabled(chat.messages.isEmpty)
-            ChatIconButton(systemName: "trash", help: "대화 삭제") {
-                deletingConversation = chat.current; showDelete = true
-            }.disabled(chat.messages.isEmpty || chat.activeMessage?.conversationID == chat.current.id)
-            Button { showPlugins = true } label: {
-                HStack(spacing: 6) { Image(systemName: "powerplug").font(.system(size: 11)); Text("플러그인") }
-            }.buttonStyle(BrandButtonStyle())
-        }.buttonStyle(.plain).padding(.horizontal, 28).frame(minHeight: 89)
-            .overlay(alignment: .bottom) { Rectangle().fill(Brand.line).frame(height: 1) }
-    }
-
-    /// Args: item은 메뉴를 연 대화이다.
-    /// Returns: 이름 변경·삭제 메뉴. 생성 중에는 삭제를 비활성화한다.
-    /// Raises: 없음.
-    @ViewBuilder private func conversationActions(_ item: ChatConversation) -> some View {
-        Button { editingConversation = item; conversationName = item.title; showRename = true } label: {
-            Label("이름 바꾸기", systemImage: "pencil")
-        }
-        Divider()
-        Button(role: .destructive) { deletingConversation = item; showDelete = true } label: {
-            Label("삭제", systemImage: "trash")
-        }.disabled(chat.activeMessage?.conversationID == item.id)
+            Spacer(minLength: 0)
+        }.padding(.top, sidebarVisible ? 20.5 : 20)   // 목록 "채팅" 제목과 글자 바닥선을 맞춘다.padding(.leading, sidebarVisible ? 28 : 21).padding(.trailing, 28)
+            .frame(height: 65, alignment: .topLeading)
     }
 
     private var conversation: some View {
         ScrollViewReader { proxy in
             HStack(spacing: 0) {
-                if chat.messages.filter({ $0.role == "user" }).count > 1 {     // 질문이 하나면 옮겨 갈 곳이 없어 눈금을 숨긴다
+                if showsQuestionMarks {
                     GeometryReader { geometry in
                         let turns = conversationTurns
                         let step = min(28, max(10, (geometry.size.height - 36) / CGFloat(turns.count)))
@@ -362,233 +360,6 @@ struct ChatView: View {
         .shadow(color: .black.opacity(0.12), radius: 14, y: 6)
     }
 
-    private func sendDraft() { chat.send() }
-
-    private var attachmentChips: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            let attachments = library.sources(conversationID: chat.current.id, projectID: chat.current.projectID)
-            if !attachments.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        ForEach(attachments) { item in
-                            Button { showSources = true } label: {
-                                Label(item.title, systemImage: "doc.text").lineLimit(1)
-                                    .font(Brand.suit(9)).foregroundStyle(Brand.tabText)
-                                    .padding(.horizontal, 7).frame(height: 22)
-                                    .background(ChatPalette.soft, in: RoundedRectangle(cornerRadius: 4))
-                                    .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(Brand.line))
-                            }.buttonStyle(.plain)
-                        }
-                    }
-                }
-            }
-            if library.busy {
-                HStack { ProgressView().controlSize(.small); Text("소스를 추가하고 있어요").font(Brand.suit(10)).foregroundStyle(Brand.gray) }
-            }
-            if !chat.current.scope.paths.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        ForEach(chat.current.scope.paths, id: \.self) { path in
-                            HStack(spacing: 5) {
-                                Image(systemName: "folder").font(.system(size: 10))
-                                Text(URL(fileURLWithPath: path).lastPathComponent).lineLimit(1)
-                                Button { chat.current.scope.paths.removeAll { $0 == path } } label: { Image(systemName: "xmark").font(.system(size: 8)) }
-                                    .disabled(chat.activeMessage?.conversationID == chat.current.id).help("연결 해제")
-                            }.font(Brand.suit(9)).foregroundStyle(Brand.tabText).padding(.horizontal, 6).frame(height: 22)
-                                .background(ChatPalette.soft, in: RoundedRectangle(cornerRadius: 4))
-                                .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(Brand.line)).help(path)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private var composerBox: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            attachmentChips.padding(.top, 12).padding(.horizontal, 14)
-            HStack(alignment: .bottom, spacing: 12) {
-                ZStack(alignment: .topLeading) {
-                    if chat.draft.isEmpty {
-                        Text(Self.placeholder(chat.current.scope))
-                            .font(Brand.suit(12)).foregroundStyle(Brand.text.opacity(0.5)).lineLimit(1)
-                            .padding(.top, 8).padding(.leading, 5).allowsHitTesting(false)
-                    }
-                    ChatInput(text: $chat.draft, height: $inputHeight, minimumHeight: 38, focusRequest: chat.inputFocusRequest, onSend: sendDraft)
-                        .frame(height: inputHeight)
-                }
-            }.padding(.horizontal, 14).padding(.top, 6)
-            HStack(spacing: 0) {
-                composerToolbar
-                sendButton
-            }.padding(.horizontal, 12).padding(.bottom, 10).padding(.top, 2)
-        }
-        .background(.white, in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(ChatPalette.inputLine))
-    }
-
-    /// 입력칸 안내: 업무·분야를 골랐으면 그 이름으로 (예: Flask 웹앱 개발에 대해 물어보세요, Flask 웹앱 개발 외 2에 대해 물어보세요)
-    static func placeholder(_ scope: ChatScope) -> String {
-        guard scope.useActivity, !scope.focus.isEmpty else { return "기록을 바탕으로 무엇을 할까요?" }
-        return "\(ChatFocusButton.summary(scope.focus))에 대해 물어보세요"
-    }
-
-    private var composerToolbar: some View {
-        let busy = chat.activeMessage?.conversationID == chat.current.id
-        return HStack(spacing: 14) {
-            attachmentMenu
-            Menu {
-                Button("자동 선택") { chat.current.skillID = "general" }
-                ForEach(chat.skills) { skill in Button(skill.title) { chat.current.skillID = skill.id } }
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "sparkles").font(.system(size: 10))
-                    Text(chat.skills.first(where: { $0.id == chat.current.skillID })?.title ?? "자동 선택")
-                    Image(systemName: "chevron.down").font(.system(size: 8))
-                }.font(Brand.suit(10)).foregroundStyle(Brand.tabText).contentShape(Rectangle())
-            }.menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize().help("스킬")
-            Button { chat.current.scope.useWeb.toggle() } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "globe").font(.system(size: 11))
-                    Text(chat.current.scope.useWeb ? "웹 검색 켬" : "웹 검색 끔")
-                }.foregroundStyle(chat.current.scope.useWeb ? Brand.ink : Brand.gray)
-            }
-            Spacer()
-        }.font(Brand.suit(10)).buttonStyle(.plain).disabled(busy)
-    }
-
-    private var composer: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if !chat.current.scope.focus.isEmpty, chat.current.scope.useActivity, pendingRecords > 0 { tidyHint.padding(.bottom, 8).padding(.leading, 4) }
-            composerBox
-            Text("질문과 조회한 자료는 연결한 AI로 전송돼요. 웹 검색과 플러그인은 허용한 범위만 사용해요.")
-                .font(Brand.suit(9)).foregroundStyle(Brand.gray).lineLimit(1).frame(maxWidth: .infinity).padding(.top, 8)
-        }.frame(maxWidth: ChatPalette.columnWidth).frame(maxWidth: .infinity)     // 대화 본문과 같은 폭
-            .padding(.horizontal, 32).padding(.top, 8).padding(.bottom, 14)
-            .background(.white)
-            .popover(isPresented: $showSources) { sourceOptions }
-    }
-
-    /// 범위를 좁혔을 때: 정리 전 기록은 아직 업무가 없어 빠진다
-    private var tidyHint: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "info.circle").font(.system(size: 10))
-            Text("정리 전 최근 기록 \(pendingRecords)건은 아직 빠져요")
-            Button(action: tidyNow) { Text("지금 정리").underline().foregroundStyle(Brand.ink) }.buttonStyle(.plain)
-        }
-        .font(Brand.suit(10)).foregroundStyle(Brand.gray)
-    }
-
-    private var attachmentMenu: some View {
-        Menu {
-            Button("파일 업로드") { chat.uploadFiles() }
-            Button("보관함에서 선택") { showLibraryPicker = true }
-            Divider()
-            Button("원본 파일·폴더 연결") { chat.connectFiles() }
-            Button("참고할 자료 설정") { showSources = true }
-        } label: {
-            HStack(spacing: 4) { Image(systemName: "paperclip").font(.system(size: 11)); Text("자료 연결") }
-                .font(Brand.suit(10)).foregroundStyle(Brand.gray).contentShape(Rectangle())
-        }
-            .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
-            .help("자료 추가").accessibilityLabel("자료 추가")
-            .disabled(library.busy || chat.activeMessage?.conversationID == chat.current.id)
-    }
-
-    private var sendButton: some View {
-        let empty = chat.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        return Button {
-            if chat.running { chat.cancel() } else { sendDraft() }
-        } label: {
-            Image(systemName: chat.running ? "stop.fill" : "arrow.up")
-                .font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
-                .frame(width: 28, height: 28)
-                .background(Brand.accent.opacity(chat.running || !empty ? 1 : 0.3), in: Circle())
-        }.buttonStyle(.plain).disabled(!chat.running && empty)
-            .help(chat.running ? "응답 중단" : "전송 (Enter)").accessibilityLabel(chat.running ? "응답 중단" : "전송")
-    }
-
-    private var sourceOptions: some View {
-        ScrollView {
-        VStack(alignment: .leading, spacing: 13) {
-            Text("답변에 사용할 자료").font(Brand.suit(14, .semibold)).foregroundStyle(Brand.ink)
-            Toggle("내 활동 기록", isOn: Binding(get: { chat.current.scope.useActivity },
-                                             set: { on in chat.current.scope.useActivity = on; if !on { chat.current.scope.focus = [] } }))
-            Toggle("웹 검색 허용", isOn: $chat.current.scope.useWeb)
-            Divider()
-            Text("플러그인").font(.system(size: 13, weight: .medium))
-            Toggle("Gmail", isOn: pluginBinding("gmail"))
-            Toggle("Google Drive", isOn: pluginBinding("drive"))
-            Toggle("GitHub", isOn: githubBinding())
-            Toggle("Notion", isOn: pluginBinding("notion"))
-            Divider()
-            HStack {
-                Text("보관 자료").font(.system(size: 13, weight: .medium))
-                Spacer()
-                Menu("추가") {
-                    Button("파일 업로드") { showSources = false; chat.uploadFiles() }
-                    Button("보관함에서 선택") { showSources = false; showLibraryPicker = true }
-                }.disabled(library.busy)
-            }
-            ForEach(library.sources(conversationID: chat.current.id, projectID: chat.current.projectID)) { item in
-                HStack {
-                    Text(item.title).font(.caption).lineLimit(2)
-                    Spacer()
-                    Button("연결 해제") { library.detach(item, conversationID: chat.current.id) }.font(.caption)
-                }
-            }
-            if library.busy { ProgressView().controlSize(.small) }
-            if let error = library.error { Text(error).font(.caption).foregroundStyle(.red) }
-            Divider()
-            HStack { Text("원본 파일·폴더 연결").font(.system(size: 13, weight: .medium)); Spacer(); Button("추가") { showSources = false; chat.connectFiles() } }
-            if chat.current.scope.paths.isEmpty {
-                Text("연결된 자료가 없습니다.").font(.caption).foregroundStyle(.secondary)
-            } else {
-                ForEach(chat.current.scope.paths, id: \.self) { path in
-                    HStack(spacing: 8) {
-                        Image(systemName: "folder").foregroundStyle(.secondary)
-                        Text(path).font(.caption).lineLimit(2).truncationMode(.middle)
-                        Spacer(minLength: 0)
-                        Button { chat.current.scope.paths.removeAll { $0 == path } } label: { Image(systemName: "xmark") }
-                            .help("연결 해제").accessibilityLabel("\(path) 연결 해제")
-                    }
-                }
-            }
-            Divider()
-            Text("질문·공통 지침·관련 과거 기록과 보관 자료 일부가 모델에 전달됩니다. 추가 원문은 모델이 조회할 때 전송됩니다. 원본 연결은 파일을 복사하지 않습니다.")
-                .font(.caption).foregroundStyle(.secondary)
-            Text("웹 검색은 Codex 또는 OpenAI API를 사용합니다. 플러그인 조회 대상은 선택한 서비스에 전송됩니다.")
-                .font(.caption).foregroundStyle(.secondary)
-            Button("플러그인 둘러보기") { showSources = false; showPlugins = true }.buttonStyle(.link)
-        }.font(Brand.suit(12)).foregroundStyle(Brand.tabText).padding(20)
-        }.frame(width: 380, height: 600).disabled(chat.activeMessage?.conversationID == chat.current.id)
-    }
-
-    /// Args: id는 대화에서 켜거나 끌 플러그인이다.
-    /// Returns: 대화별 플러그인 선택 바인딩.
-    /// Raises: 없음.
-    private func pluginBinding(_ id: String) -> Binding<Bool> {
-        Binding(get: { chat.current.scope.plugins.contains(id) }, set: { enabled in
-            if enabled {
-                guard (try? PluginAuth.isConnected(id)) == true else { showSources = false; showPlugins = true; return }
-                if !chat.current.scope.plugins.contains(id) { chat.current.scope.plugins.append(id) }
-            }
-            else { chat.current.scope.plugins.removeAll { $0 == id } }
-        })
-    }
-
-    /// Args: 없음.
-    /// Returns: GitHub 연결 상태를 확인한 뒤 변경하는 대화별 자료 바인딩.
-    /// Raises: 없음. 미연결 상태에서는 플러그인 목록을 연다.
-    private func githubBinding() -> Binding<Bool> {
-        Binding(get: { chat.current.scope.useGitHub }, set: { enabled in
-            if enabled && (try? PluginAuth.isConnected("github")) != true {
-                showSources = false; showPlugins = true; return
-            }
-            chat.current.scope.useGitHub = enabled
-        })
-    }
-
     /// Args: message는 저장된 요청 또는 응답이다.
     /// Returns: 사용자 질문 또는 출처, 실행 상태를 포함한 답변.
     /// Raises: 없음.
@@ -607,7 +378,13 @@ struct ChatView: View {
                     BrandBadge(skill.title)
                 }
                 if message.status == "running" || !message.steps.isEmpty {
-                    DisclosureGroup {
+                    DisclosureGroup(isExpanded: Binding(
+                        get: { message.status == "running" ? !collapsedSteps.contains(message.id) : expandedSteps.contains(message.id) },
+                        set: { open in
+                            if message.status == "running" {
+                                if open { collapsedSteps.remove(message.id) } else { collapsedSteps.insert(message.id) }
+                            } else if open { expandedSteps.insert(message.id) } else { expandedSteps.remove(message.id) }
+                        })) {
                         ForEach(Array(message.steps.enumerated()), id: \.offset) { _, step in
                             Text(step).font(Brand.suit(10)).foregroundStyle(Brand.gray).frame(maxWidth: .infinity, alignment: .leading)
                         }
@@ -658,7 +435,7 @@ struct ChatView: View {
                         .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Brand.line))
                 }
                 if message.status != "running" {
-                    HStack(spacing: 14) {
+                    HStack(spacing: 16) {
                         if !message.sources.isEmpty {
                             Button {
                                 withAnimation(.easeOut(duration: 0.15)) {
@@ -668,14 +445,17 @@ struct ChatView: View {
                                 HStack(spacing: 4) {
                                     Text("출처 \(message.sources.count)개")
                                     Image(systemName: expandedSources.contains(message.id) ? "chevron.down" : "chevron.right").font(.system(size: 8))
-                                }
+                                }.foregroundStyle(Brand.gray)
                             }
                         }
                         Button { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(message.text, forType: .string) } label: {
-                            Image(systemName: "doc.on.doc")
+                            Image(systemName: "doc.on.doc").font(.system(size: 13))
                         }.help("답변 복사")
                         if ["cancelled", "interrupted"].contains(message.status) {
-                            Label("중단됨", systemImage: "stop.circle").font(Brand.suit(11)).foregroundStyle(Brand.tabText)
+                            HStack(spacing: 4) {
+                                Image(systemName: "record.circle").font(.system(size: 11))
+                                Text("중단됨").font(Brand.suit(11))
+                            }.foregroundStyle(Brand.tabText)
                         }
                         if message.status == "failed" {
                             Button("요청 다시 입력") {
@@ -699,7 +479,7 @@ struct ChatView: View {
                             }.buttonStyle(.plain).help(item.title)
                             .overlay(alignment: .top) { if index > 0 { Rectangle().fill(Brand.line).frame(height: 1) } }
                         }
-                    }.frame(maxWidth: 520)
+                    }
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -745,7 +525,13 @@ struct ChatView: View {
 enum ChatPalette {
     static let soft = Brand.paper       // 말풍선, 칩, 대화 상자 머리글 바탕
     static let inputLine = Color(hex: 0xD8D2CD)  // 입력 상자 테두리
-    static let columnWidth: CGFloat = 865        // 대화 본문과 입력창이 함께 쓰는 최대 폭
+    static let columnWidth: CGFloat = 600        // 대화 본문, 입력칸, 시작 화면이 함께 쓰는 폭 (Figma 600)
+    static let sidebarWidth: CGFloat = 261
+    static let navSelected = Color(hex: 0xEAE5DF)   // 사이드바 메뉴 고른 줄 (둥글기 7)
+    static let cardLine = Color(hex: 0xE9E7E5)      // 카드 테두리, 목록 줄 구분선
+    static let rowHover = Color(hex: 0xF3EFEA)      // 검색 결과, 메뉴 줄 고름과 마우스 올림
+    static let panelLine = Color(hex: 0xE6E1DB)     // 검색 창 테두리
+    static let field = Color(hex: 0xF5F2EE)         // 한 줄 입력칸 바탕 (둥글기 8, 테두리 없음)
 }
 
 /// 작은 상태 태그: 일부, 예정, 일시 중지됨
@@ -785,8 +571,8 @@ struct ChatDialogButtonStyle: ButtonStyle {
             .font(Brand.suit(12, .medium))
             .foregroundStyle(primary ? Color.white : Brand.tabText)
             .padding(.horizontal, 14).frame(height: 38)
-            .background(RoundedRectangle(cornerRadius: 6).fill(primary ? Brand.ink : .white))
-            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(primary ? Brand.ink : Brand.line))
+            .background(RoundedRectangle(cornerRadius: 6).fill(primary ? Brand.accentDark : .white))
+            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(primary ? Brand.accentDark : Brand.line))
             .opacity(configuration.isPressed ? 0.75 : 1)
             .contentShape(Rectangle())
     }
@@ -957,7 +743,7 @@ private struct ChatSchedulesView: View {
             }
         } footer: {
             Spacer()
-            Button("닫기") { dismiss() }.buttonStyle(ChatDialogButtonStyle())
+            Button("닫기") { dismiss() }.buttonStyle(.plain).font(Brand.suit(12, .medium)).foregroundStyle(Brand.tabText)   // CH-10: 테두리 없는 글자 단추
         }
         .alert("예약 작업 삭제", isPresented: $confirmDelete) {
             Button("취소", role: .cancel) { deletingJob = nil }
@@ -969,5 +755,39 @@ private struct ChatSchedulesView: View {
                 deletingJob = nil
             }
         } message: { Text("예약을 삭제합니다. 이미 생성된 대화는 그대로 남습니다.") }
+    }
+}
+
+/// 새 대화 화면 바탕: 발표 표지(Figma 1231:39559)와 같은 옅은 회색 바탕에 그래프 분야 색 번짐 다섯 개.
+/// 값은 표지 채움 그대로(가운데 불투명도, 55% 지점, 가장자리 0). 위치와 반지름은 화면 폭, 높이에 대한 비율
+struct ChatStartBackground: View {
+    private struct Glow { let color: Color; let x, y, rx, ry, a0, a55: CGFloat }
+    private static let glows: [Glow] = [
+        Glow(color: Color(hex: 0x4A86C5), x: 0.80, y: 0.30, rx: 0.30, ry: 0.55, a0: 0.22, a55: 0.08),   // 파랑
+        Glow(color: Color(hex: 0x8A4E7D), x: 0.97, y: 0.80, rx: 0.22, ry: 0.42, a0: 0.20, a55: 0.07),   // 보라
+        Glow(color: Color(hex: 0x3D9B6B), x: 0.58, y: 1.02, rx: 0.22, ry: 0.38, a0: 0.18, a55: 0.06),   // 초록
+        Glow(color: Color(hex: 0xE9B23F), x: 0.66, y: -0.02, rx: 0.18, ry: 0.30, a0: 0.22, a55: 0.08),  // 노랑
+        Glow(color: Color(hex: 0xE0533D), x: 1.00, y: 0.08, rx: 0.16, ry: 0.30, a0: 0.18, a55: 0.06),   // 빨강
+    ]
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack {
+                LinearGradient(colors: [Color(hex: 0xF7F8FA), Color(hex: 0xE6E9EE)], startPoint: UnitPoint(x: 0.4, y: 0), endPoint: UnitPoint(x: 0.6, y: 1))
+                ForEach(Self.glows.indices, id: \.self) { i in
+                    let g = Self.glows[i]
+                    Circle()
+                        .fill(RadialGradient(stops: [.init(color: g.color.opacity(g.a0), location: 0),
+                                                     .init(color: g.color.opacity(g.a55), location: 0.55),
+                                                     .init(color: g.color.opacity(0), location: 1)],
+                                             center: .center, startRadius: 0, endRadius: 100))
+                        .frame(width: 200, height: 200)
+                        .scaleEffect(x: g.rx * 2 * geo.size.width / 200, y: g.ry * 2 * geo.size.height / 200)
+                        .position(x: g.x * geo.size.width, y: g.y * geo.size.height)
+                }
+            }
+        }
+        .clipped()
+        .allowsHitTesting(false)
     }
 }

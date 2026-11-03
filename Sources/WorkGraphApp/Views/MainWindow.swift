@@ -94,7 +94,6 @@ private extension View { func railLabel(_ text: String) -> some View { modifier(
 private struct TitleBarBrand: View {
     var body: some View {
         HStack(spacing: 12) {
-            Color.clear.frame(width: 18, height: 4)       // 신호등 다음 빈칸 (Figma 851:359, 아이콘은 없앴다)
             if let mark = Brand.wordmark {
                 Image(nsImage: mark).resizable().scaledToFit().frame(height: 17).accessibilityLabel("SILLOG")
             } else {
@@ -114,7 +113,7 @@ private struct TitleConnection: View {
     @EnvironmentObject private var state: AppState
     private var compat: Bool { state.settings.chatUsesAPI }
     private var host: String { URL(string: state.settings.chatEndpoint.url)?.host?.lowercased() ?? "" }
-    private var ajou: Bool { state.settings.chatProvider == "ajou" }
+    private var ajou: Bool { state.settings.effectiveChatProvider == "ajou" }
     private var plan: String? { if case .loggedIn(_, let plan, _) = state.codexStatus, let plan, !plan.isEmpty { return plan }; return nil }
     private var label: String {
         if !compat { return plan.map { "ChatGPT \($0.prefix(1).uppercased() + $0.dropFirst())" } ?? "ChatGPT" }
@@ -437,9 +436,9 @@ struct MainWindow: View {
         // 왼쪽부터 아이콘 줄, 업무 드로어(목록, 펼치면 상세), 본문. 상세가 펼쳐지면 본문을 덮지 않고 오른쪽으로 밀어 본문 폭이 줄어든다
         GeometryReader { geo in
             let available = geo.size.width - (showsTabs ? NavRail.width : 0) - TasksPanel.listWidth
+            let corner: CGFloat = 12                            // 본문 영역 왼쪽 위 모서리 반지름 (Figma GR-01)
             ZStack(alignment: .topLeading) {
                 HStack(spacing: 0) {
-                    if showsTabs { Color.clear.frame(width: NavRail.width) }
                     if ready && state.selectedTab == .graph { TasksPanel(detailWidth: TasksPanel.detailWidth(available: available)) }   // 업무 목록은 그래프 옆에만 (채팅·기록 자료·설정은 본문만)
                     Group {
                         if let error = state.startupError {
@@ -463,6 +462,10 @@ struct MainWindow: View {
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
+                .background(Brand.paper, ignoresSafeAreaEdges: [])   // 비치는 곳은 예전처럼 창 바탕색 (모서리 바깥만 아래 색이 보이게)
+                .clipShape(UnevenRoundedRectangle(topLeadingRadius: showsTabs ? corner : 0, style: .circular))   // 모든 탭 공통: 본문 영역(창 머리 아래, 아이콘 줄 오른쪽) 왼쪽 위만 둥글게
+                .background(alignment: .topLeading) { Color(hex: 0xEFECE9).frame(width: corner, height: corner) }   // 모서리 바깥은 창 머리, 아이콘 줄과 같은 색
+                .padding(.leading, showsTabs ? NavRail.width : 0)    // 아이콘 줄 자리
                 if showsTabs { NavRail() }                          // 맨 위: 이름표가 업무 목록 위로 나오게
             }
         }

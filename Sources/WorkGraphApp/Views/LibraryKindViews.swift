@@ -91,9 +91,20 @@ struct LibraryTextInfo {
     var hasTable = false
 
     static func read(_ url: URL) -> LibraryTextInfo {
-        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return .init() }
+        guard let raw = try? String(contentsOf: url, encoding: .utf8) else { return .init() }
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("<") ? plainText(raw) : raw
         let line = text.split(separator: "\n").map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "#>*- \t")) }.first { !$0.isEmpty } ?? ""
-        return .init(first: line, count: text.count, hasTable: text.localizedCaseInsensitiveContains("<table") || text.contains("|---"))
+        return .init(first: line, count: text.count, hasTable: raw.localizedCaseInsensitiveContains("<table") || raw.contains("|---"))
+    }
+
+    /// HTML 결과물: 머리(head, style, script)와 태그를 걷어 낸 본문 글. 카드 미리보기에 <!doctype html> 이 보이지 않게
+    private static func plainText(_ html: String) -> String {
+        var s = html
+        for pattern in ["(?is)<head.*?</head>", "(?is)<style.*?</style>", "(?is)<script.*?</script>", "(?i)<br\\s*/?>|</(p|div|h[1-6]|li|tr)>", "(?s)<[^>]+>"] {
+            s = s.replacingOccurrences(of: pattern, with: pattern.hasPrefix("(?i)<br") ? "\n" : " ", options: .regularExpression)
+        }
+        return s.replacingOccurrences(of: "&nbsp;", with: " ").replacingOccurrences(of: "&amp;", with: "&")
+            .replacingOccurrences(of: "&lt;", with: "<").replacingOccurrences(of: "&gt;", with: ">")
     }
 }
 

@@ -16,6 +16,11 @@ final class LibraryState: ObservableObject {
         do { items = try store.items() } catch { self.error = error.localizedDescription }
     }
 
+    func results(limit: Int? = nil) -> [ChatLibraryItem] {
+        let all = items.filter { $0.kind == "generated" }.sorted { $0.createdAt > $1.createdAt }
+        return limit.map { Array(all.prefix($0)) } ?? all
+    }
+
     func collectExisting() {
         guard !busy else { return }
         busy = true

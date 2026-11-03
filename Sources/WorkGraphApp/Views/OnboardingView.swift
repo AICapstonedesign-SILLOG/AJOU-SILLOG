@@ -7,7 +7,8 @@ import WorkGraphCollectors
 import WorkGraphCore
 
 /// 온보딩 화면 전체: 창 전체를 연한 바탕(#EFECE8)으로 덮고 내용을 가운데에 둔다. 뒤 화면은 비치지 않는다.
-/// 1단계(로그인)는 AI 연결 고르기 → ChatGPT 계정 / 아주대 LLM API / API 키, 2단계는 권한 허용 (Figma 859:1862, 877:2403~2553)
+/// 1단계(로그인)는 AI 연결 고르기 → ChatGPT 계정 / 아주대 LLM API / API 키, 연결되면 판단 모델 고르기 → Jev API / 아주대 LLM jev-latest / 건너뛰기,
+/// 2단계는 권한 허용 (Figma 859:1862, 877:2403~2553, 판단 모델은 OUT-24~27)
 struct OnboardingOverlay: View {
     let step: OnboardingStep
 
@@ -74,8 +75,8 @@ private struct ArtImage: View {
 
 // MARK: 온보딩 시트
 
-/// 1단계에서 고른 연결 방법
-private enum LoginMethod { case choose, chatgpt, ajou, apiKey }
+/// 1단계(로그인)의 화면. 앞의 넷은 AI 연결 고르기와 연결 방법별 화면, 뒤의 셋은 연결된 뒤에 거치는 판단 모델 고르기와 그 연결 화면
+private enum LoginMethod { case choose, chatgpt, ajou, apiKey, judge, judgeJev, judgeAjou }
 
 struct OnboardingSheet: View {
     @EnvironmentObject private var state: AppState
@@ -85,6 +86,8 @@ struct OnboardingSheet: View {
     @State private var apiURL = ""
     @State private var apiModel = ""
     @State private var apiKey = ""
+    @State private var judgeJevKey = ""
+    @State private var judgeAjouKey = ""
     @State private var testing = false
     @State private var notice: String?
     @StateObject private var perms = OnboardingPermissions()
@@ -92,12 +95,15 @@ struct OnboardingSheet: View {
     private let poll = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     private var connected: Bool { state.phase != .login }
 
-    /// WORKGRAPH_ONBOARDING=chatgpt|ajou|apikey 로 연결 방법 화면에서 시작한다 (개발, 스크린샷용)
+    /// WORKGRAPH_ONBOARDING=chatgpt|ajou|apikey|judge|jev|ajoujev 로 그 화면에서 시작한다 (개발, 스크린샷용)
     private static let initialMethod: LoginMethod = {
         switch ProcessInfo.processInfo.environment["WORKGRAPH_ONBOARDING"] {
         case "chatgpt": return .chatgpt
         case "ajou": return .ajou
         case "apikey": return .apiKey
+        case "judge": return .judge
+        case "jev": return .judgeJev
+        case "ajoujev": return .judgeAjou
         default: return .choose
         }
     }()
@@ -121,12 +127,13 @@ struct OnboardingSheet: View {
             state.refreshPermissionGrants()
             Task { await perms.refresh() }
         }
-        // 로그인이 끝나면(새로 연결됐을 때) 바로 권한 단계로
+        // 로그인이 끝나면(새로 연결됐을 때) 바로 판단 모델 고르기로.
+        // 아주대 LLM 과 API 키 연결은 connect 가 직접 넘기니 여기서 건드리면 안 된다 (연결을 ChatGPT 로 되돌려 버린다)
         .onChange(of: state.phase) { old, new in
-            if step == .login, old == .login, new != .login { useChatGPTProvider(); state.advanceOnboarding() }
+            if step == .login, old == .login, new != .login, method == .choose || method == .chatgpt { useChatGPTProvider(); goJudge() }
         }
         .onChange(of: state.codexStatus) { _, new in
-            if step == .login, method == .chatgpt, case .loggedIn = new { useChatGPTProvider(); state.advanceOnboarding() }
+            if step == .login, method == .chatgpt, case .loggedIn = new { useChatGPTProvider(); goJudge() }
         }
     }
 
@@ -139,6 +146,9 @@ struct OnboardingSheet: View {
             case .chatgpt: chatgptPage
             case .ajou: ajouPage
             case .apiKey: apiKeyPage
+            case .judge: judgePage
+            case .judgeJev: judgeJevPage
+            case .judgeAjou: judgeAjouPage
             }
         }
     }
@@ -163,6 +173,13 @@ struct OnboardingSheet: View {
         method = next
     }
 
+    /// 연결이 끝난 뒤 판단 모델 고르기로. 앱이 아직 연결로 보지 않으면(ChatGPT 상태만 먼저 바뀐 경우) 가지 않는다:
+    /// 거기서 건너뛰기를 눌러도 다음 단계(advanceOnboarding)가 안 넘어가 갇히기 때문
+    private func goJudge() {
+        // 이미 마친 계정(phase .ready)이 다시 로그인한 경우는 예전처럼 시트를 닫는다. 판단 모델은 설정에서 바꾼다
+        if state.phase == .ready { state.advanceOnboarding() } else if connected { go(.judge) }
+    }
+
     // MARK: 1. AI 연결 고르기
 
     private var choosePage: some View {
@@ -176,8 +193,8 @@ struct OnboardingSheet: View {
                     ArtImage(name: "ajou_emblem", size: 76)
                 } action: { go(.ajou) }
                 MethodTile(title: "API 키", detail: "가진 키를 붙여 넣어요") {
-                    Image(systemName: "link").font(.system(size: 54, weight: .regular)).foregroundStyle(OB.brown)
-                        .rotationEffect(.degrees(-45)).frame(width: 72, height: 72)
+                    Image(systemName: "link").font(.system(size: 62, weight: .regular)).foregroundStyle(OB.brown)
+                        .frame(width: 72, height: 72)
                 } action: { go(.apiKey) }
             }
             .frame(maxWidth: 1060)
@@ -258,9 +275,9 @@ struct OnboardingSheet: View {
         if let code = state.deviceCode { NSWorkspace.shared.open(code.verificationURL) } else { state.startCodexLogin() }
     }
 
-    /// 연결 확인: 로그인돼 있으면 다음 단계, 아니면 상태를 다시 읽는다
+    /// 연결 확인: 로그인돼 있으면 판단 모델 고르기로, 아니면 상태를 다시 읽는다
     private func confirmChatGPT() {
-        if case .loggedIn = state.codexStatus { useChatGPTProvider(); state.advanceOnboarding(); return }
+        if case .loggedIn = state.codexStatus { useChatGPTProvider(); goJudge(); return }
         state.refreshCodexStatus()
         if state.deviceCode == nil { state.startCodexLogin() } else { notice = "아직 승인 전이에요. ChatGPT에서 코드를 넣어 주세요." }
     }
@@ -275,15 +292,20 @@ struct OnboardingSheet: View {
     // MARK: 3. 아주대 LLM API
 
     private var ajouPage: some View {
+        ajouKeyPage("아주대 LLM API로 연결해요", "학교 계정으로 키를 받아 붙여 넣으면 돼요.", key: $ajouKey)
+    }
+
+    /// 아주대 LLM 키 받는 화면: 연결용과 판단 모델용(OUT-26)이 제목과 키 입력칸만 다르다
+    private func ajouKeyPage(_ title: String, _ sub: String, key: Binding<String>) -> some View {
         VStack(spacing: 28) {
-            heading("아주대 LLM API로 연결해요", "학교 계정으로 키를 받아 붙여 넣으면 돼요.")
+            heading(title, sub)
             VStack(spacing: 0) {
                 listRow(1, "아주대 LLM 사이트에 학교 계정으로 로그인해요")
                 listRow(2, "개발자 메뉴의 API 키 탭에서 새 키를 만들어요")
                 listRow(3, "키는 한 번만 보여요. 바로 복사해요")
                 HStack(spacing: 14) {
                     numberDot(4)
-                    keyField($ajouKey, placeholder: "복사한 API 키를 여기에 붙여 넣어요", fill: OB.field, height: 44, radius: 12)
+                    keyField(key, placeholder: "복사한 API 키를 여기에 붙여 넣어요", fill: OB.field, height: 44, radius: 12)
                 }
                 .padding(.top, 16)
             }
@@ -356,7 +378,7 @@ struct OnboardingSheet: View {
         .shadow(color: OB.shadow, radius: 8, y: 3)
     }
 
-    /// OpenAI 호환 서버 연결: 값을 넣어 연결 확인(시험 호출)을 하고, 되면 저장하고 권한 단계로. 안 되면 원래 설정으로 되돌린다
+    /// OpenAI 호환 서버 연결: 값을 넣어 연결 확인(시험 호출)을 하고, 되면 저장하고 판단 모델 고르기로. 안 되면 원래 설정으로 되돌린다
     private func connect(baseURL: String, model: String, key: String) {
         guard !testing else { return }
         testing = true; notice = nil
@@ -374,7 +396,7 @@ struct OnboardingSheet: View {
             testing = false
             if state.llmTestResult?.hasPrefix("연결됨") == true {
                 state.finishAPIKeyConnection()
-                state.advanceOnboarding()
+                goJudge()
             } else {
                 state.settings = before
                 notice = state.llmTestResult ?? "연결하지 못했어요."
@@ -386,7 +408,78 @@ struct OnboardingSheet: View {
         !apiURL.trimmingCharacters(in: .whitespaces).isEmpty && !apiModel.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
-    // MARK: 5. 권한 허용
+    // MARK: 5. 판단 모델 고르기 (OUT-24~27)
+
+    /// 아주대 LLM 으로 연결했는가. 그러면 판단 모델도 그 키를 같이 쓴다
+    private var ajouConnected: Bool { state.settings.llmProvider == "ajou" && !state.settings.ajouAPIKey.isEmpty }
+
+    private var judgePage: some View {
+        VStack(spacing: 40) {
+            heading("판단 모델을 골라요", "업무를 고를 때만 쓰는 Jev예요. 안 쓰면 정리 모델이 판단해요.")
+            HStack(spacing: 20) {
+                MethodTile(title: "Jev API", detail: "Jev 키를 붙여 넣어요") {
+                    ArtImage(name: "jev", size: 72)
+                } action: { go(.judgeJev) }
+                MethodTile(title: "아주대 LLM jev-latest", detail: ajouConnected ? "연결한 아주대 키를 같이 써요" : "학교 계정 키로 Jev를 써요") {
+                    ArtImage(name: "ajou_emblem", size: 76)
+                } action: { chooseAjouJudge() }
+            }
+            .frame(maxWidth: 700)
+            Text("판단 모델은 나중에 설정에서 켜고 끌 수 있어요.").font(Brand.suit(13)).foregroundStyle(Brand.gray)
+        }
+    }
+
+    private var judgeJevPage: some View {
+        VStack(spacing: 26) {
+            heading("Jev API로 연결해요", "Jev 사이트에서 받은 키를 붙여 넣으면 돼요.")
+            VStack(alignment: .leading, spacing: 18) {
+                labeled("Jev API 키") { keyField($judgeJevKey, placeholder: "여기에 붙여 넣기", fill: .white, height: 56, radius: 18).shadow(color: OB.shadow, radius: 8, y: 3) }
+            }
+            .frame(maxWidth: 936)
+            resultLine
+        }
+    }
+
+    private var judgeAjouPage: some View {
+        ajouKeyPage("아주대 LLM 키로 Jev를 써요", "학교 계정으로 키를 받아 붙여 넣으면 jev-latest로 판단해요.", key: $judgeAjouKey)
+    }
+
+    /// 아주대 카드: 아주대로 연결했으면 그 키를 같이 쓰고 바로 권한 단계로, 아니면 키를 받는 화면으로
+    private func chooseAjouJudge() {
+        if ajouConnected { finishJudge("ajou") } else { go(.judgeAjou) }
+    }
+
+    /// 판단 모델을 저장하고 권한 단계로 ("none" 은 쓰지 않음)
+    private func finishJudge(_ provider: String) {
+        state.settings.judgeProvider = provider
+        state.applySettings()
+        state.advanceOnboarding()
+    }
+
+    /// 판단 모델 연결 확인(시험 호출): 되면 키를 저장하고 권한 단계로, 안 되면 저장하지 않고 이유를 보여 준다. provider 는 "jev" 나 "ajou"
+    private func connectJudge(_ provider: String, endpoint: JevEndpoint) {
+        guard !testing else { return }
+        testing = true; notice = nil
+        let startedOn = method
+        Task {
+            let failure: String?
+            do {
+                try await JevClient(endpoint: endpoint).verify()
+                failure = nil
+            } catch {
+                failure = error is JevError ? error.localizedDescription : "판단 모델 서버에 연결하지 못했어요. \(error.localizedDescription)"
+            }
+            testing = false
+            guard method == startedOn else { return }     // 확인하는 동안 다른 화면으로 돌아갔으면 건드리지 않는다 (건너뛰기를 덮어쓰지 않게)
+            if let failure { notice = failure; return }
+            if provider == "ajou" { state.settings.ajouAPIKey = endpoint.key } else { state.settings.jevAPIKey = endpoint.key }
+            finishJudge(provider)
+        }
+    }
+
+    private func trimmed(_ text: String) -> String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    // MARK: 6. 권한 허용
 
     private var permissionPage: some View {
         let grants = state.permissionGrants
@@ -407,6 +500,7 @@ struct OnboardingSheet: View {
                 smallPermission(.speech, icon: "perm_speech", title: "음성 인식", detail: "녹음을 Mac 안에서\n글로 받아써요")
                 smallPermission(.downloads, icon: "perm_folder", title: "다운로드 폴더", detail: "새로 받은 파일을\n업무에 이어요")
                 smallPermission(.documents, icon: "perm_folder", title: "문서 폴더", detail: "받아쓴 녹음을\n저장해요")
+                smallPermission(.calendar, icon: "", symbol: "calendar", title: "캘린더", detail: "오늘 일정을 보고\n제안을 등록해요")
                 smallPermission(.loginItem, icon: "perm_login", title: "로그인할 때 열기", detail: "켜 두면\n빠짐없이 기록해요")
             }
             Text("손쉬운 사용과 화면 기록은 시스템 설정에서 켜요. 화면 기록은 켠 뒤 앱을 다시 실행해야 해요.")
@@ -445,10 +539,15 @@ struct OnboardingSheet: View {
         .frame(height: 32, alignment: .leading)
     }
 
-    private func smallPermission(_ item: OnboardingPermissions.Item, icon: String, title: String, detail: String) -> some View {
+    private func smallPermission(_ item: OnboardingPermissions.Item, icon: String, symbol: String? = nil, title: String, detail: String) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .center) {
-                ArtImage(name: icon, size: 30)
+                if let symbol {
+                    Image(systemName: symbol).font(.system(size: 15, weight: .medium)).foregroundStyle(OB.brown)
+                        .frame(width: 30, height: 30).background(RoundedRectangle(cornerRadius: 8).fill(OB.chip))
+                } else {
+                    ArtImage(name: icon, size: 30)
+                }
                 Spacer(minLength: 4)
                 if perms.granted.contains(item) {
                     grantedLabel(size: 12).frame(height: 28)
@@ -507,18 +606,20 @@ struct OnboardingSheet: View {
     }
 
     private var backLabel: String? {
-        if step == .permissions { return "이전" }
+        if step == .permissions || method == .judge { return "이전" }
         return method == .choose ? nil : "다른 방법 고르기"
     }
 
     private func goBack() {
         notice = nil
         if step == .permissions {
-            state.onboardingStep = .login        // 연결 방법을 다시 고르는 화면. 연결돼 있으면 거기서 다음으로 돌아온다
-            method = .choose
+            state.onboardingStep = .login        // 권한 앞 화면인 판단 모델 고르기로 돌아온다. 연결 방법은 거기서 이전으로 다시 고른다
+            method = .judge
+        } else if method == .judgeJev || method == .judgeAjou {
+            method = .judge
         } else {
             if method == .chatgpt { state.cancelCodexLogin() }
-            method = .choose
+            method = .choose                     // 연결 방법을 다시 고르는 화면. 연결돼 있으면 거기서 다음으로 돌아온다 (판단 모델 고르기의 이전도 여기로)
         }
     }
 
@@ -533,7 +634,7 @@ struct OnboardingSheet: View {
             switch method {
             case .choose:
                 if connected {
-                    Button("다음") { state.advanceOnboarding() }.buttonStyle(OBButtonStyle(kind: .primary)).keyboardShortcut(.defaultAction)
+                    Button("다음") { goJudge() }.buttonStyle(OBButtonStyle(kind: .primary)).keyboardShortcut(.defaultAction)
                 }
             case .chatgpt:
                 Button { openChatGPT() } label: { linkLabel("ChatGPT 열기") }.buttonStyle(OBButtonStyle(kind: .secondary))
@@ -552,6 +653,21 @@ struct OnboardingSheet: View {
                 }
                 .buttonStyle(OBButtonStyle(kind: .primary)).keyboardShortcut(.defaultAction)
                 .disabled(testing || !apiKeyReady)
+            case .judge:
+                Button("건너뛰기") { state.advanceOnboarding() }   // 앞에서 골라 둔 판단 모델이 있으면 그대로 둔다 (기본값은 안 씀).buttonStyle(OBButtonStyle(kind: .secondary))
+            case .judgeJev:
+                Button("연결 확인") {
+                    connectJudge("jev", endpoint: JevEndpoint(url: JevEndpoint.typesafeURL, model: JevEndpoint.defaultModel, key: trimmed(judgeJevKey)))
+                }
+                .buttonStyle(OBButtonStyle(kind: .primary)).keyboardShortcut(.defaultAction)
+                .disabled(testing || trimmed(judgeJevKey).isEmpty)
+            case .judgeAjou:
+                Button { NSWorkspace.shared.open(AppSettings.ajouSite) } label: { linkLabel("아주대 LLM 열기") }.buttonStyle(OBButtonStyle(kind: .secondary))
+                Button("연결 확인") {
+                    connectJudge("ajou", endpoint: JevEndpoint(url: AppSettings.ajouBaseURL + "/decisions/", model: JevEndpoint.defaultModel, key: trimmed(judgeAjouKey)))
+                }
+                .buttonStyle(OBButtonStyle(kind: .primary)).keyboardShortcut(.defaultAction)
+                .disabled(testing || trimmed(judgeAjouKey).isEmpty)
             }
         }
     }
@@ -644,13 +760,13 @@ private struct OBPillStyle: ButtonStyle {
     }
 }
 
-// MARK: 추가 권한 (알림, 마이크, 음성 인식, 폴더, 로그인 항목)
+// MARK: 추가 권한 (알림, 마이크, 음성 인식, 폴더, 캘린더, 로그인 항목)
 
-/// 온보딩 권한 화면의 작은 타일 여섯 개의 상태와 요청. 상태는 묻지 않고 읽을 수 있는 것만 읽고(알림, 마이크, 음성 인식, 로그인 항목),
+/// 온보딩 권한 화면의 작은 타일 일곱 개의 상태와 요청. 상태는 묻지 않고 읽을 수 있는 것만 읽고(알림, 마이크, 음성 인식, 로그인 항목),
 /// 폴더는 읽기를 시도해야 알 수 있어(처음이면 시스템이 묻는다) 누른 뒤에만 허용됨으로 바뀐다
 @MainActor
 final class OnboardingPermissions: ObservableObject {
-    enum Item: String, CaseIterable { case notifications, microphone, speech, downloads, documents, loginItem }
+    enum Item: String, CaseIterable { case notifications, microphone, speech, downloads, documents, calendar, loginItem }
 
     @Published private(set) var granted: Set<Item> = []
     /// WORKGRAPH_ONBOARDING_GRANTED=notifications,loginItem 처럼 정해 두면 시스템을 읽지 않고 그 상태로 고정한다 (스크린샷용)
@@ -677,6 +793,7 @@ final class OnboardingPermissions: ObservableObject {
             let settings = await UNUserNotificationCenter.current().notificationSettings()
             if settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional { now.insert(.notifications) }
         }
+        if CalendarService.isGranted { now.insert(.calendar) }
         if AVCaptureDevice.authorizationStatus(for: .audio) == .authorized { now.insert(.microphone) }
         if SFSpeechRecognizer.authorizationStatus() == .authorized { now.insert(.speech) }
         // 로그인 항목 상태 조회는 수 초 걸릴 수 있는 동기 XPC 호출이라 메인 스레드 밖에서 읽는다
@@ -692,6 +809,7 @@ final class OnboardingPermissions: ObservableObject {
         case .speech: await requestSpeech(openSettingsOnFail)
         case .downloads: await requestFolder(.downloadsDirectory, item, openSettingsOnFail)
         case .documents: await requestFolder(.documentDirectory, item, openSettingsOnFail)
+        case .calendar: await CalendarService.shared.requestAccess(openSettingsOnFail: openSettingsOnFail)
         case .loginItem: await requestLoginItem(openSettingsOnFail)
         }
         await refresh()

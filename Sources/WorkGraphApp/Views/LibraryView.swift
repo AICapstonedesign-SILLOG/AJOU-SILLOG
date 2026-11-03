@@ -250,7 +250,9 @@ struct LibraryPicker: View {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").font(.system(size: 12)).foregroundStyle(Brand.gray)
                 TextField("자료 이름 검색", text: $query).textFieldStyle(.plain).font(Brand.suit(12)).foregroundStyle(Brand.text)
-            }.brandField().padding(.horizontal, 27).padding(.top, 16)
+            }.padding(.horizontal, 12).frame(height: 36)
+                .background(ChatPalette.field, in: RoundedRectangle(cornerRadius: 8))
+                .padding(.horizontal, 27).padding(.top, 16)
             ScrollView {
                 LazyVStack(spacing: 0) {
                     let items = library.items.filter { query.isEmpty || $0.title.localizedCaseInsensitiveContains(query) }
@@ -330,24 +332,20 @@ struct ProjectSourcesView: View {
     }
 
     private func sourceRow(_ item: ChatLibraryItem) -> some View {
-        let ext = URL(fileURLWithPath: item.filename).pathExtension.lowercased()
-        return VStack(spacing: 0) {
+        VStack(spacing: 0) {
             HStack(spacing: 14) {
                 Button { preview = item } label: {
                     HStack(spacing: 12) {
-                        VStack(spacing: 2) {
-                            Image(systemName: item.kind == "note" ? "text.bubble" : "doc.text").font(.system(size: 14))
-                            if item.kind != "note" { Text(String(ext.uppercased().prefix(5))).font(Brand.jost(8)) }
-                        }.foregroundStyle(Brand.ink).frame(width: 36, height: 40)
+                        Image(systemName: item.kind == "note" ? "text.bubble" : "doc.text").font(.system(size: 14))
+                            .foregroundStyle(Brand.ink).frame(width: 36, height: 40)
                         VStack(alignment: .leading, spacing: 4) {
                             Text(item.title).font(Brand.suit(12, .medium)).foregroundStyle(Brand.tabText).lineLimit(1)
-                            Text(item.kind == "note" ? "저장한 답변" : item.kind == "generated" ? "생성한 파일" : "파일")
+                            Text(item.kind == "note" ? "저장한 답변" : item.kind == "generated" ? "생성한 파일" : "업로드")
                                 .font(Brand.suit(10)).foregroundStyle(Brand.gray)
                         }.frame(maxWidth: .infinity, alignment: .leading)
                     }.padding(.vertical, 12).contentShape(Rectangle())
                 }.buttonStyle(.plain)
-                Text(Date(timeIntervalSince1970: item.createdAt), format: .dateTime.month().day())
-                    .font(Brand.jost(11)).foregroundStyle(Brand.gray)
+                Text(ChatDateText.day(item.createdAt)).font(Brand.suit(11)).foregroundStyle(Brand.gray)
                 Menu {
                     Button("파일 내보내기") { library.export(item) }
                     Button("프로젝트에서 제거") { library.detach(item, projectID: project.id) }

@@ -17,7 +17,7 @@ struct GraphWebView: NSViewRepresentable {
         webView.setValue(false, forKey: "drawsBackground")              // 로딩 중 흰 화면 방지
         context.coordinator.webView = webView
         if let directory = Self.graphDirectory() {
-            webView.loadFileURL(directory.appendingPathComponent("index.html"), allowingReadAccessTo: directory)
+            webView.loadFileURL(directory.appendingPathComponent("index.html"), allowingReadAccessTo: directory.deletingLastPathComponent())   // ../Brand/Fonts 의 SUIT 글꼴도 읽게
         } else {
             webView.loadHTMLString("<body style='background:#1e1e1e;color:#ddd;font:14px -apple-system;padding:40px'>그래프 화면 리소스를 찾지 못했습니다.</body>", baseURL: nil)
         }

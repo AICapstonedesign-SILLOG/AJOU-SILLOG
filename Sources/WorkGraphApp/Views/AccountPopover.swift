@@ -16,9 +16,9 @@ struct AccountPopover: View {
     /// 정리와 채팅이 같은 방식이면 하나, 다르면 둘 다
     private var connection: String {
         let s = state.settings
-        return s.llmProvider == s.chatProvider
+        return s.llmProvider == s.effectiveChatProvider
             ? Self.providerLabel(s.llmProvider)
-            : "정리 \(Self.providerLabel(s.llmProvider)), 채팅 \(Self.providerLabel(s.chatProvider))"
+            : "정리 \(Self.providerLabel(s.llmProvider)), 채팅 \(Self.providerLabel(s.effectiveChatProvider))"
     }
     private var cleanupModel: String { state.settings.llmUsesAPI ? state.settings.llmEndpoint.model : state.settings.codexModel }
 
