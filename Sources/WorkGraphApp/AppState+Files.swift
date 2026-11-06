@@ -27,7 +27,7 @@ extension AppState {
         let ordered: [FileSuggestion] = pending + decided
         if ordered != fileSuggestions { fileSuggestions = ordered }
         let badge = pending.isEmpty ? "" : "\(pending.count)"
-        if NSApp.dockTile.badgeLabel ?? "" != badge { NSApp.dockTile.badgeLabel = badge }
+        if let dock = NSApp?.dockTile, dock.badgeLabel ?? "" != badge { dock.badgeLabel = badge }      // 테스트에는 NSApp 이 없다
     }
 
     /// 지난 기록의 다른 쪽 (0부터)

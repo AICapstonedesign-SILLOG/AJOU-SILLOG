@@ -254,7 +254,9 @@ public struct GraphTx {
             return TaskDigest(id: task.key, title: task.title, taskType: taskType, topics: topics,
                               recentResources: resources, lastActive: task.props["last_active"]?.doubleValue ?? task.updatedAt,
                               resourceKeys: resourceKeys, apps: apps, recentSummaries: summaries,
-                              goal: task.props["goal"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 })
+                              goal: task.props["goal"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 },
+                              folders: (task.props["project_seconds"]?.objectValue ?? [:]).sorted { ($0.value.doubleValue ?? 0) > ($1.value.doubleValue ?? 0) }
+                                .map { ($0.key as NSString).lastPathComponent })
         }
     }
 

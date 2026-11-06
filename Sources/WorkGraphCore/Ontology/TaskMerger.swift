@@ -69,17 +69,19 @@ public struct TaskMerger: Sendable {
             if !task.topics.isEmpty { line += " | topics: \(task.topics.joined(separator: ", "))" }
             if !task.recentSummaries.isEmpty { line += " | recent work: \(task.recentSummaries.map { OntologyPrompt.clip($0, 120) }.joined(separator: " / "))" }
             if !task.recentResources.isEmpty { line += " | resources: \(task.recentResources.prefix(4).map { OntologyPrompt.clip($0, 50) }.joined(separator: "; "))" }
+            if !task.folders.isEmpty { line += " | folders: \(task.folders.prefix(3).joined(separator: ", "))" }
             lines.append(line)
         }
         return lines.joined(separator: "\n")
     }
 
     /// LLM 에 묻고 (dry 가 아니면) 반영한다. 돌려주는 값에 그룹과 합친 수
-    public static func run(db: WGDatabase, llm: any LLMClient, since: Double, now: Double, dry: Bool = false) async throws -> Result {
+    /// extraRules: 규칙에 덧붙일 글 (정리 제안이 쓴다)
+    public static func run(db: WGDatabase, llm: any LLMClient, since: Double, now: Double, dry: Bool = false, extraRules: String = "") async throws -> Result {
         let tasks = try await db.writer.read { try GraphTx($0).openTasks(limit: 60, since: since) }
         var result = Result()
         guard tasks.count >= 2 else { return result }
-        let answer = try await llm.callFunction(system: system, user: prompt(tasks), tool: tool)
+        let answer = try await llm.callFunction(system: system + extraRules, user: prompt(tasks), tool: tool)
         result.raw = answer.raw
         guard let parsed = try? JSONDecoder().decode(Answer.self, from: answer.arguments) else { return result }
         let known = Set(tasks.map(\.id))
@@ -129,7 +131,8 @@ public struct TaskMerger: Sendable {
             try conn.execute(sql: "UPDATE chat_messages SET task_id = ? WHERE task_id = ?", arguments: [keep.id, victim.id])
             try conn.execute(sql: "UPDATE recordings SET task_id = ? WHERE task_id = ?", arguments: [keep.id, victim.id])
             // 세션, 나중에 할 일 → 남길 업무로. 주제는 겹치지 않는 것만
-            try conn.execute(sql: "UPDATE edges SET dst = ? WHERE dst = ? AND type IN ('PART_OF', 'FOR')", arguments: [keep.id, victim.id])
+            // 같은 세션·할 일이 이미 남길 업무에도 걸려 있으면 그대로 둔다 (남은 연결은 아래에서 사라지는 업무와 함께 지운다)
+            try conn.execute(sql: "UPDATE OR IGNORE edges SET dst = ? WHERE dst = ? AND type IN ('PART_OF', 'FOR')", arguments: [keep.id, victim.id])
             for edge in try tx.edges(from: victim.id, type: EdgeType.about) {
                 try tx.upsertEdge(src: keep.id, dst: edge.dst, type: EdgeType.about, props: [:], addWeight: 0, at: edge.lastAt)
             }

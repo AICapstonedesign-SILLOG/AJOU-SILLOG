@@ -91,6 +91,8 @@ extension AppState {
     /// 업무 드로어를 그 업무로 연다 (업무 목록, 그래프, 같은 맥락 업무에서 누를 때)
     func openTaskDetail(id: Int64) {
         selectedTaskId = id
+        openNode = nil
+        nodeTrail = []
         taskDetailOpen = true
     }
 

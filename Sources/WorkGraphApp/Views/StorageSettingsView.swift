@@ -172,6 +172,14 @@ struct StorageSettingsView: View {
                             .buttonStyle(BrandButtonStyle(kind: .primary)).disabled(state.consolidating)
                     }
                 }
+                SettingRow("정리 제안", detail: state.reviewProposals.isEmpty ? "하루 한 번 업무·주제·할 일을 다시 보고 합칠 것을 제안해요" : "대기 중인 제안 \(state.reviewProposals.count)개") {
+                    HStack(spacing: 10) {
+                        if state.reviewRunning { ProgressView().controlSize(.small) }
+                        if !state.reviewProposals.isEmpty { Button("제안 보기") { state.reviewSheetOpen = true }.buttonStyle(BrandButtonStyle()) }
+                        Button(state.reviewRunning ? "다시 보는 중…" : "지금 다시 정리") { Task { await state.runReview(); if !state.reviewProposals.isEmpty { state.reviewSheetOpen = true } } }
+                            .buttonStyle(BrandButtonStyle(kind: .primary)).disabled(state.reviewRunning)
+                    }
+                }
             }
             InfoLine(state.rawRecordsSince.map { "원문 기록은 \($0)부터 남아 있어요. 그 전은 요약과 사용 시간만 있어요." }
                      ?? "아직 지운 원문이 없어요.")

@@ -17,6 +17,9 @@ public struct RowAssignment: Equatable, Sendable {
 /// 세션 = 같은 업무의 행이 시간순으로 이어진 구간. 업무를 정하는 데는 쓰이지 않고, 정해진 행을 시간으로 묶어 보여 주는 것이다.
 ///   - 같은 업무가 gap(30분) 안에 다시 나오면 같은 세션으로 잇는다
 ///   - 다른 업무가 끼어들어도 세션은 갈리지 않는다 (끼어든 업무는 제 세션을 갖고, 흐름은 SWITCHED_TO 로 남는다)
+///   - glance(1분) 미만 훑어본 행은 새 세션을 만들지 않고 같은 날 같은 업무의 가장 가까운 세션에 붙인다 (그 세션의 시간 범위가 넓어지고, 활동 시간은 실제만큼).
+///     단 이 정리 안에서 바로(30분 안) 같은 업무의 진짜 작업이 이어지면 그 작업과 같은 세션이다. AI 에게 한 말(활동 0초)은 작업의 시작이라 훑어보기가 아니다.
+///     붙인 훑어보기는 세션의 끝(end)만 늘리고 작업이 끝난 때(work_end)는 그대로라, 30분 규칙은 실제 작업 기준으로 잰다
 /// LLM 없이 행 판단(observations.task_id)에서 언제든 다시 계산할 수 있다.
 public struct SessionBuilder: Sendable {
     public struct Stats: Equatable, Sendable {
@@ -25,8 +28,29 @@ public struct SessionBuilder: Sendable {
     }
 
     public var gap: Double = 1_800
+    /// 이보다 짧게(초) 본 행은 같은 날 세션에 붙인다 (11/06: 세션 654개 중 387개가 1분 미만이었다)
+    public var glance: Double = 60
+    /// '같은 날'을 정하는 달력
+    public var calendar: Calendar = .current
 
-    public init(gap: Double = 1_800) { self.gap = gap }
+    public init(gap: Double = 1_800, glance: Double = 60, calendar: Calendar = .current) {
+        self.gap = gap; self.glance = glance; self.calendar = calendar
+    }
+
+    /// 같은 날 그 업무의 세션 중 at 에 가장 가까운 것
+    func sameDaySession(task: Int64, at: Double, tx: GraphTx) throws -> Int64? {
+        let day = Date(timeIntervalSince1970: at)
+        var best: (id: Int64, distance: Double)?
+        for edge in try tx.edges(to: task, type: EdgeType.partOf) {
+            guard let session = try tx.node(id: edge.src), session.label == NodeLabel.session,
+                  let start = session.props["start"]?.doubleValue else { continue }
+            let end = session.props["end"]?.doubleValue ?? start
+            guard calendar.isDate(Date(timeIntervalSince1970: start), inSameDayAs: day) || calendar.isDate(Date(timeIntervalSince1970: end), inSameDayAs: day) else { continue }
+            let distance = at < start ? start - at : at > end ? at - end : 0
+            if best == nil || distance < best!.distance { best = (session.id, distance) }
+        }
+        return best?.id
+    }
 
     /// 세션 제목: "9/22 14:45–20:01 · 업무 제목"
     static func title(task: String, start: Double, end: Double) -> String {
@@ -44,15 +68,24 @@ public struct SessionBuilder: Sendable {
         var resourceKeys = Set<String>()
         var previousSession: Int64?
 
-        for item in ordered {
+        func isGlance(_ item: RowAssignment) -> Bool { !item.row.isChat && Double(item.row.dwell) < glance }
+        for (index, item) in ordered.enumerated() {
             guard let taskId = item.taskId, let task = try tx.node(id: taskId) else { continue }
             let row = item.row
+            // 이 정리 안에서 30분 안에 같은 업무의 진짜 작업이 이어지는지 (그러면 훑어보기도 그 작업과 같은 세션)
+            let workFollows = ordered[(index + 1)...].contains { $0.taskId == taskId && !isGlance($0) && $0.row.start - row.end <= gap }
+            var attachedGlance = false
             let sessionId: Int64
             if let known = sessionOf[taskId] {
                 sessionId = known
-            } else if let latest = try tx.latestSession(ofTask: taskId), let latestEnd = latest.props["end"]?.doubleValue,
+            } else if let latest = try tx.latestSession(ofTask: taskId),
+                      let latestEnd = latest.props["work_end"]?.doubleValue ?? latest.props["end"]?.doubleValue,
                       row.start - latestEnd <= gap, row.start >= (latest.props["start"]?.doubleValue ?? 0) - gap {
                 sessionId = latest.id
+                stats.sessionsExtended += 1
+            } else if isGlance(item), !workFollows, let sameDay = try sameDaySession(task: taskId, at: row.start, tx: tx) {
+                sessionId = sameDay                                         // 혼자 훑어본 행: 같은 날 세션에 (이 업무의 다음 행이 이 세션으로 끌려오지 않게 기억하지 않는다)
+                attachedGlance = true
                 stats.sessionsExtended += 1
             } else {
                 sessionId = try tx.upsertNode(label: NodeLabel.session, key: "s_\(task.key)_\(Int(row.start))", subtype: nil,
@@ -62,7 +95,7 @@ public struct SessionBuilder: Sendable {
                 try tx.upsertEdge(src: sessionId, dst: taskId, type: EdgeType.partOf, props: [:], addWeight: 0, at: row.start)
                 stats.sessions += 1
             }
-            sessionOf[taskId] = sessionId
+            if !attachedGlance { sessionOf[taskId] = sessionId }
             sessionByRow[row.row] = sessionId
 
             // 시간 범위, 실제 작업 시간, 요약(배치마다 한 문장씩 누적 — 덮어쓰면 마지막 5분만 남는다)
@@ -73,6 +106,9 @@ public struct SessionBuilder: Sendable {
                     "start": .number(start), "end": .number(end),
                     "active_seconds": .number((session.props["active_seconds"]?.doubleValue ?? 0) + Double(row.dwell)),
                 ]
+                // 실제 작업이 끝난 때: 붙인 훑어보기는 늘리지 않는다 (예전 세션은 end 에서 시작)
+                let workEnd = session.props["work_end"]?.doubleValue ?? session.props["end"]?.doubleValue ?? row.end
+                props["work_end"] = .number(attachedGlance ? workEnd : max(workEnd, row.end))
                 if let summary = summaries[taskId], !summary.isEmpty {
                     var list = session.props["summaries"]?.arrayValue?.compactMap(\.stringValue) ?? []
                     if !list.contains(summary) { list.append(summary) }

@@ -500,7 +500,7 @@ struct OnboardingSheet: View {
                 smallPermission(.speech, icon: "perm_speech", title: "음성 인식", detail: "녹음을 Mac 안에서\n글로 받아써요")
                 smallPermission(.downloads, icon: "perm_folder", title: "다운로드 폴더", detail: "새로 받은 파일을\n업무에 이어요")
                 smallPermission(.documents, icon: "perm_folder", title: "문서 폴더", detail: "받아쓴 녹음을\n저장해요")
-                smallPermission(.calendar, icon: "", symbol: "calendar", title: "캘린더", detail: "오늘 일정을 보고\n제안을 등록해요")
+                if AppFeatures.calendarOn { smallPermission(.calendar, icon: "", symbol: "calendar", title: "캘린더", detail: "오늘 일정을 보고\n제안을 등록해요") }
                 smallPermission(.loginItem, icon: "perm_login", title: "로그인할 때 열기", detail: "켜 두면\n빠짐없이 기록해요")
             }
             Text("손쉬운 사용과 화면 기록은 시스템 설정에서 켜요. 화면 기록은 켠 뒤 앱을 다시 실행해야 해요.")

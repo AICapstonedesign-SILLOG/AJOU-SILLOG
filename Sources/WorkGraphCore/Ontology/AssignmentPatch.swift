@@ -106,37 +106,16 @@ public struct AssignmentPatch: Codable, Equatable, Sendable {
         }
     }
 
-    /// 기록에 나온 내 일정 (캘린더 제안용). date 는 yyyy-MM-dd, 시간은 HH:mm (없으면 종일)
-    public struct CalendarRef: Codable, Equatable, Sendable {
-        public var row: Int
-        public var title: String
-        public var date: String
-        public var startTime: String?
-        public var endTime: String?
-
-        enum CodingKeys: String, CodingKey { case row, title, date, startTime = "start_time", endTime = "end_time" }
-
-        public init(from decoder: Decoder) throws {
-            let c = try decoder.container(keyedBy: CodingKeys.self)
-            row = try c.lenientInt(.row) ?? 0
-            title = (try? c.decodeIfPresent(String.self, forKey: .title)) ?? ""
-            date = (try? c.decodeIfPresent(String.self, forKey: .date)) ?? ""
-            startTime = try? c.decodeIfPresent(String.self, forKey: .startTime)
-            endTime = try? c.decodeIfPresent(String.self, forKey: .endTime)
-        }
-    }
-
     public var tasks: [TaskDef]
     public var rows: [RowRef]
     public var work: [Work]
     public var problems: [ProblemRef]?
     public var laterItems: [LaterRef]?
-    public var calendarEvents: [CalendarRef]?
 
-    enum CodingKeys: String, CodingKey { case tasks, rows, work, problems, laterItems = "later_items", calendarEvents = "calendar_events" }
+    enum CodingKeys: String, CodingKey { case tasks, rows, work, problems, laterItems = "later_items" }
 
-    public init(tasks: [TaskDef], rows: [RowRef], work: [Work], problems: [ProblemRef]? = nil, laterItems: [LaterRef]? = nil, calendarEvents: [CalendarRef]? = nil) {
-        self.tasks = tasks; self.rows = rows; self.work = work; self.problems = problems; self.laterItems = laterItems; self.calendarEvents = calendarEvents
+    public init(tasks: [TaskDef], rows: [RowRef], work: [Work], problems: [ProblemRef]? = nil, laterItems: [LaterRef]? = nil) {
+        self.tasks = tasks; self.rows = rows; self.work = work; self.problems = problems; self.laterItems = laterItems
     }
 
     public init(from decoder: Decoder) throws {
@@ -146,7 +125,6 @@ public struct AssignmentPatch: Codable, Equatable, Sendable {
         work = (try? c.decodeIfPresent([Work].self, forKey: .work)) ?? []
         problems = try? c.decodeIfPresent([ProblemRef].self, forKey: .problems)
         laterItems = try? c.decodeIfPresent([LaterRef].self, forKey: .laterItems)
-        calendarEvents = try? c.decodeIfPresent([CalendarRef].self, forKey: .calendarEvents)
     }
 
     /// 이탈(어떤 목표에도 기여하지 않음)을 뜻하는 task 값

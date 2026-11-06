@@ -22,6 +22,8 @@ public struct BatchConfig: Sendable {
     /// 테마 단계(분야·종류 붙이기): 정리에서 새 업무가 생기면 업무 합치기 뒤에, 그리고 앱을 시작할 때 돈다.
     /// 분야 측정이 기준 미달이고 분야를 옮길 화면이 아직 없어, 사용자가 켤 때까지 꺼 둔다
     public var themes: Bool = false
+    /// 일정 찾기: 정리가 끝나면 그 행 전부(업무 외 포함)에서 앞으로의 일정을 AI 에 한 번 더 물어 캘린더 제안으로 남긴다 (EventFinder)
+    public var findEvents: Bool = true
 
     public init() {}
 }
@@ -42,6 +44,8 @@ public actor OntologyBatcher {
     private var llm: any LLMClient
     /// 판단 모델(Jev). 있으면 ② 업무 대입에서 행을 기존 업무에 붙일지 새 업무로 볼지 먼저 고른다 (없으면 LLM 이 모두 한다)
     private var jevClient: (any JevChoosing)?
+    /// 캘린더에 이미 있는 일정 (앱이 EventKit 으로 읽어 준다: 시작, 끝). 일정 찾기가 같은 일정을 다시 제안하지 않게 쓴다
+    private var upcomingEvents: (@Sendable (Date, Date) async -> [EventFinder.Known])?
     private var config: BatchConfig
     private let home: String
     private let fileExists: @Sendable (String) -> Bool
@@ -64,6 +68,8 @@ public actor OntologyBatcher {
         llm = client
         failures = 0; nextAllowedAt = 0
     }
+
+    public func setUpcomingEvents(_ provider: (@Sendable (Date, Date) async -> [EventFinder.Known])?) { upcomingEvents = provider }
 
     /// 판단 모델 연결. nil 이면 쓰지 않는다
     public func setJudge(_ endpoint: JevEndpoint?) {
@@ -176,6 +182,7 @@ public actor OntologyBatcher {
             return .failed(message)
         }
         failures = 0; nextAllowedAt = 0
+        if config.findEvents { await findEvents(rows: rows, cards: cards, now: now) }
         // 새 업무가 생겼으면 제목만 다른 같은 목표가 아닌지 LLM 에 묻는다 (합치기)
         if stats.tasksCreated > 0 {
             var merged = stats
@@ -227,6 +234,19 @@ public actor OntologyBatcher {
             guard full.count > limit, !calls.isEmpty else { return full }
             // 따옴표 이스케이프로 길이가 최대 두 배가 되므로 몫의 절반만 남긴다
             return encode(max(0, (limit - 100 * calls.count) / (2 * calls.count)))
+        }
+    }
+
+    /// 정리한 행 전부에서 앞으로의 일정을 찾아 캘린더 제안으로 남긴다. 반영한 뒤에만 돈다 (판정이 실패하면 행이 다음 정리에 다시 들어가 그때 찾는다).
+    /// 실패해도 정리 결과에는 영향이 없다 (로그만 남긴다)
+    private func findEvents(rows: [ActivityRow], cards: [Int: [ScreenCard]], now: Double) async {
+        let today = Calendar.current.startOfDay(for: Date(timeIntervalSince1970: now))
+        let calendar = await upcomingEvents?(today, today.addingTimeInterval(60 * 86_400)) ?? []
+        do {
+            let ids = try await EventFinder.run(db: db, llm: llm, rows: rows, cards: cards, calendar: calendar, now: now)
+            if !ids.isEmpty { AppLog.write("일정 제안 \(ids.count)개를 찾음") }
+        } catch {
+            AppLog.write("일정 찾기 실패: \((error as? LLMError)?.description ?? "\(error)")")
         }
     }
 

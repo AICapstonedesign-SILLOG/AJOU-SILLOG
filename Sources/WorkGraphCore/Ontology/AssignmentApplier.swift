@@ -159,28 +159,9 @@ public struct AssignmentApplier: Sendable {
             stats.laterItems += 1
         }
 
-        // 5-1. 기록에 나온 일정은 캘린더 제안으로만 저장한다 (등록은 사용자가 누를 때). 지난 날짜는 거른다
-        for event in patch.calendarEvents ?? [] {
-            let title = event.title.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !title.isEmpty, let (start, end, allDay) = Self.eventTimes(event), start.timeIntervalSince1970 >= Calendar.current.startOfDay(for: Date(timeIntervalSince1970: now)).timeIntervalSince1970 else { continue }
-            let source = byNumber[event.row]
-            try EventSuggestionStore.insert(tx.db, title: title, start: start, end: end, allDay: allDay, evidenceId: source?.observationIds.first,
-                                            evidence: source?.title ?? source?.uri ?? "", now: now)
-        }
-
         // 6. 업무 ↔ 프로젝트 1:1
         if assignments.contains(where: { $0.taskId != nil && $0.resource && $0.row.projectKey != nil }) { try tx.rebindProjects(at: now) }
         return (stats, assignments)
-    }
-
-    /// 제안 일정의 시작·끝. 날짜 형식이 틀리면 nil, 시작 시간이 없거나 틀리면 종일
-    static func eventTimes(_ event: AssignmentPatch.CalendarRef) -> (Date, Date?, Bool)? {
-        let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = "yyyy-MM-dd HH:mm"
-        guard let day = DateFormatter.ymd.date(from: event.date.trimmingCharacters(in: .whitespaces)) else { return nil }
-        let date = DateFormatter.ymd.string(from: day)
-        guard let t = event.startTime?.trimmingCharacters(in: .whitespaces), let start = f.date(from: "\(date) \(t)") else { return (day, nil, true) }
-        let end = event.endTime.flatMap { f.date(from: "\(date) \($0.trimmingCharacters(in: .whitespaces))") }.flatMap { $0 > start ? $0 : nil }
-        return (start, end, false)
     }
 
     /// LLM 이 resource 를 안 적었을 때: 파일·AI 대화·문서류는 자료, 그냥 웹페이지·미리보기·메시지는 아니다

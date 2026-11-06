@@ -66,14 +66,20 @@ public enum OntologyPrompt {
     }
 
     /// 행 줄과 그 아래 screen:/text:. 같은 카드가 여러 행에 걸치면 이 목록 안에서 처음 한 번만 전문
-    public static func rowLines(_ rows: [ActivityRow], cards: [Int: [ScreenCard]], timeZone: TimeZone) -> [String] {
+    /// dates 면 날이 바뀔 때마다 날짜 줄(dateLine)을 넣는다 (일정 찾기: 행의 '내일'을 그 행의 날짜로 풀게)
+    public static func rowLines(_ rows: [ActivityRow], cards: [Int: [ScreenCard]], timeZone: TimeZone, dates: Bool = false) -> [String] {
         let clock = DateFormatter()
         clock.locale = Locale(identifier: "en_US_POSIX")
         clock.timeZone = timeZone
         clock.dateFormat = "HH:mm"
         var lines: [String] = []
         var shown: [Int64: Int] = [:]                       // 카드 id → 처음 보인 행
+        var lastDay: String?
         for row in rows {
+            if dates {
+                let day = dateLine(row.start, timeZone: timeZone)
+                if day != lastDay { lines.append(day); lastDay = day }
+            }
             let time = "\(clock.string(from: Date(timeIntervalSince1970: row.start)))-\(clock.string(from: Date(timeIntervalSince1970: row.end)))"
             let fields = ["\(row.row)", time, "\(row.dwell)s", row.app, row.type ?? "-", clip(row.title ?? "-", 90), clip(row.uri ?? "-", 140)]
             lines.append(fields.joined(separator: " | "))
@@ -91,6 +97,15 @@ public enum OntologyPrompt {
             }
         }
         return lines
+    }
+
+    /// "DATE 2026-11-03 Tue"
+    public static func dateLine(_ ts: Double, timeZone: TimeZone) -> String {
+        let day = DateFormatter()
+        day.locale = Locale(identifier: "en_US_POSIX")
+        day.timeZone = timeZone
+        day.dateFormat = "yyyy-MM-dd EEE"
+        return "DATE \(day.string(from: Date(timeIntervalSince1970: ts)))"
     }
 
     /// 카드 인용 줄. 대화 화면은 최근 메시지가 근거라 뒤에서 12줄, 그 밖의 화면은 앞에서 6줄

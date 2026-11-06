@@ -13,11 +13,10 @@ public struct ScreenCapturer: Sendable {
               !privacy.isExcluded(bundle: snapshot.appBundle), !privacy.isPrivateWindow(title: snapshot.windowTitle) else { return nil }
         do {
             let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-            let matches = content.windows.filter {
-                $0.owningApplication?.processID == snapshot.pid && $0.title == snapshot.windowTitle && $0.frame == frame
-            }
+            let infos = content.windows.map { WindowInfo(pid: $0.owningApplication?.processID ?? 0, title: $0.title, frame: $0.frame) }
             // 창을 하나로 특정하지 못하면 전체 화면으로 대체하지 않는다.
-            guard matches.count == 1, let window = matches.first else { return nil }
+            guard let index = Self.pick(infos, pid: snapshot.pid, title: snapshot.windowTitle, frame: frame) else { return nil }
+            let window = content.windows[index]
             let filter = SCContentFilter(desktopIndependentWindow: window)
             let config = SCStreamConfiguration()
             let scale = min(1.0, Double(maxWidth) / max(frame.width, 1))
@@ -28,6 +27,28 @@ public struct ScreenCapturer: Sendable {
         } catch {
             return nil
         }
+    }
+
+    struct WindowInfo: Equatable {
+        var pid: pid_t
+        var title: String?
+        var frame: CGRect
+    }
+
+    /// 찍을 창: 같은 프로그램의 같은 위치·크기 창 중 제목이 같은 것, 없으면 접근성 제목이 "캡처 쪽 제목 - …" 인 것 중 가장 길게 맞는 것.
+    /// Chrome 은 접근성 제목에만 " - Chrome - 프로필" 을 붙인다. 최대화한 창 여러 개는 위치·크기가 같아 제목으로 가린다. 하나로 정해지지 않으면 nil
+    static func pick(_ windows: [WindowInfo], pid: pid_t, title: String?, frame: CGRect) -> Int? {
+        let candidates = windows.indices.filter { windows[$0].pid == pid && windows[$0].frame == frame }
+        let exact = candidates.filter { windows[$0].title == title }
+        if !exact.isEmpty { return exact.count == 1 ? exact[0] : nil }
+        guard let title else { return nil }
+        let prefixed = candidates.compactMap { index -> (Int, Int)? in
+            guard let own = windows[index].title, !own.isEmpty, title.hasPrefix(own + " - ") else { return nil }
+            return (index, own.count)
+        }
+        guard let longest = prefixed.map(\.1).max() else { return nil }
+        let best = prefixed.filter { $0.1 == longest }
+        return best.count == 1 ? best[0].0 : nil
     }
 
     @discardableResult

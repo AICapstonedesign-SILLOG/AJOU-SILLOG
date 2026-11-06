@@ -192,8 +192,10 @@ private struct MenuBarDashboard: View {
             }
             .frame(minHeight: 232, alignment: .top)
             MenuLine()
-            MenuBarCalendar(openMain: openMain)
-            MenuLine()
+            if AppFeatures.calendarOn {                                   // 캘린더를 꺼 두면 캘린더 줄도 없다
+                MenuBarCalendar(openMain: openMain)
+                MenuLine()
+            }
             bottom
         }
     }
@@ -540,7 +542,7 @@ extension RecordingPipeline.Step {
 private struct MenuBarCalendar: View {
     @EnvironmentObject private var state: AppState
     @ObservedObject private var calendar = CalendarService.shared
-    @AppStorage("menuCalendarExpanded") private var expanded = false
+    @AppStorage(MenuBarPanel.calendarExpandedKey) private var expanded = false
     let openMain: () -> Void
 
     private var summary: String {

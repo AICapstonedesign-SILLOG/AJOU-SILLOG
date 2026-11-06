@@ -51,7 +51,9 @@ struct TasksView: View {
             sidebar.frame(width: 277)
             if showsDetail {
                 Group {
-                    if state.taskList.isEmpty {
+                    if let node = state.openNode {
+                        NodeDetailView(ref: node)                        // 그래프에서 업무가 아닌 노드를 눌렀을 때
+                    } else if state.taskList.isEmpty {
                         emptyState
                     } else if let task = state.taskList.first(where: { $0.id == selectedTask }) {
                         detail(task)
@@ -153,6 +155,7 @@ struct TasksView: View {
                     Text("\(state.taskList.count)").font(Brand.suit(19)).foregroundStyle(Brand.gray)
                 }
                 if !fields.isEmpty { fieldBar(fields, filter: filter) }
+                ReviewBanner()                                              // 정리 제안이 있으면 한 줄
             }
             .padding(.horizontal, 27).padding(.top, 27).padding(.bottom, 12)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -477,10 +480,26 @@ struct TasksView: View {
                             sessionRow(session, first: index == 0)
                         }
                     }
+                    eraseButton(task).padding(.top, 40)
                 }
                 .padding(.horizontal, 33).padding(.bottom, 24)
             }
         }
+    }
+
+    /// 상세 맨 아래 '이 업무 지우기': 누르면 지울 것을 세어 확인 창에 보여 준다 (확인 창은 MainWindow 의 EraseDialog 하나)
+    private func eraseButton(_ task: TaskSummary) -> some View {
+        Button { state.askErase(NodeRef(label: NodeLabel.task, key: task.key)) } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "trash").font(.system(size: 11))
+                Text("이 업무 지우기").font(Brand.suit(12))
+            }
+            .foregroundStyle(Color(hex: 0xC0573F))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(state.erasing)
+        .help("이 업무와 그 기록(원시 기록·화면 카드·요약)을 지워요. 되돌릴 수 없어요")
     }
 
     private func heading(_ task: TaskSummary, lines: Int) -> some View {

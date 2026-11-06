@@ -216,6 +216,7 @@ public actor CollectorCoordinator {
                 text = text.isEmpty ? recognized : text + "\n" + recognized
             }
         }
+        text = ScreenText.trimmed(text, appBundle: snapshot.appBundle, appName: snapshot.appName)   // 편집기는 앞부분만
         guard isCurrent(snapshot), settings.captureText, !text.isEmpty,
               let textId = try? store.upsertText(text, source: source, at: Date().timeIntervalSince1970) else { return }
         try? store.attach(observationId: observationId, textId: textId, screenshotPath: nil)

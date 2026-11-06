@@ -960,6 +960,7 @@ qr.readability=function(t,n){var e=qr(t),r=qr(n);return(Math.max(e.getLuminance(
                       tree: '시간 비중', flow: '시간 흐름', path: '전환 경로', gantt: '간트', cal: '달력' };
   const TASK = Object.fromEntries(TASKS.map(t => [t.id, t]));
   const THEME = Object.fromEntries(THEMES.map(t => [t.id, t]));
+  const TYPEKEY = {};   // 업무 종류 이름 -> 노드 키 (상세·지우기에 쓴다)
 
   // 2주치 세션을 고정 시드로 만든다. 0일 = 9/19, 13일 = 10/2(오늘)
   let DAYS = 14;
@@ -3050,9 +3051,13 @@ qr.readability=function(t,n){var e=qr(t),r=qr(n);return(Math.max(e.getLuminance(
     cv.addEventListener('pointerleave', () => { cvOver = false; if (drag) return; HOVER.n = null; HOVER.p = null; HOVER.g = null; tip.hidden = true; card.hidden = true; kick(); });
     cv.addEventListener('click', e => {
       if (wasDrag) { wasDrag = false; return; }
-      const { g, n } = pick(e);
-      if (g) { if (e.detail < 2) setGal(g.th.id === cvGal && !cvFocus ? null : g.th.id); } else if (n) { setFocus(n.t.id); openDetail(n.t.id); }   // 업무를 누르면 집중 + 업무 드로어
+      const { g, n, p } = pick(e);
+      if (g) { if (e.detail < 2) { const off = g.th.id === cvGal && !cvFocus; setGal(off ? null : g.th.id); if (!off) showNode({ theme: g.th.id }); } }
+      else if (n) { setFocus(n.t.id); openDetail(n.t.id); }   // 업무를 누르면 집중 + 업무 드로어
+      else if (p) showNode(cvDesc(p));                       // 세션 점·자료 점은 그 노드 상세
     });
+    const cvDesc = p => p.s ? { session: p.s } : p.it ? { item: p.it.k, name: p.it.name, tids: (p.users || [p.n]).map(u => u.t.id) } : null;
+    cv.addEventListener('contextmenu', e => { const { g, n, p } = pick(e); nodeMenu(g ? { theme: g.th.id } : n ? { task: n.t.id } : p ? cvDesc(p) : null, e); });
     cv.addEventListener('dblclick', e => { const { g, n } = pick(e); if (g) return; if (n) openDetail(n.t.id); else setFocus(null); });
     cv.addEventListener('keydown', e => {
       const s = 60, K = e.key;
@@ -3803,12 +3808,15 @@ qr.readability=function(t,n){var e=qr(t),r=qr(n);return(Math.max(e.getLuminance(
       if (reduce) draw(0);   // 움직임 줄이기에서도 올린 업무의 선을 진하게
     });
     cv.addEventListener('pointerleave', () => { tip.hidden = true; on = null; hs = null; visSync(); if (reduce) draw(0); });
-    cv.addEventListener('click', () => {   // 누르면 선택(고정)과 확대, 같은 것을 다시 누르거나 빈 곳을 누르면 푼다. 업무는 상세도 연다
-      if (on && on.r) { const r = on.r; pick(sel && sel.r === r ? null : { r }); openDetail(r.t.id); }   // pick 이 올림(on)을 비우므로 먼저 챙겨 둔다
-      else if (on && on.kind) pick(sel === on ? null : on);
-      else if (on && on.uid && on.uid.length === 1) { const id = on.uid[0]; pick({ r: byRow.get(id) }); openDetail(id); }   // 혼자 쓰는 자료는 그 업무
-      else if (!on) pick(null);
+    const solDesc = o => !o ? null : o.r ? { task: o.r.t.id } : o.kind === 'th' ? { theme: o.g.id } : o.kind === 'ty' ? { type: o.name } : o.it ? { item: o.it.k, name: o.it.name, tids: o.uid } : null;
+    cv.addEventListener('click', () => {   // 누르면 선택(고정)과 확대, 같은 것을 다시 누르거나 빈 곳을 누르면 푼다. 누른 것의 상세도 연다 (업무는 업무 상세)
+      const o = on;   // pick 이 올림(on)을 비우므로 먼저 챙겨 둔다
+      if (o && o.r) { pick(sel && sel.r === o.r ? null : { r: o.r }); openDetail(o.r.t.id); }
+      else if (o && o.kind) { pick(sel === o ? null : o); if (o.kind !== 'root') showNode(solDesc(o)); }
+      else if (o && o.uid) { if (o.uid.length === 1) pick({ r: byRow.get(o.uid[0]) }); showNode(solDesc(o)); }   // 혼자 쓰는 자료는 그 업무를 고른 채로
+      else if (!o) pick(null);
     });
+    cv.addEventListener('contextmenu', e => nodeMenu(solDesc(on), e));
     const ro = new ResizeObserver(() => fit());
     ro.observe(box); addEventListener('pointermove', onMove); addEventListener('keydown', onKey); fit();
     if (SEL && byRow.get(SEL)) pick({ r: byRow.get(SEL) });   // 다른 보기에서 고른 업무
@@ -3833,7 +3841,7 @@ qr.readability=function(t,n){var e=qr(t),r=qr(n);return(Math.max(e.getLuminance(
     const rel = [];
     if (state.showLinks) pool.forEach((t, i) => related(t, pool).forEach((shared, oid) => { if (pool.findIndex(o => o.id === oid) > i) rel.push([t.id, oid, shared.length]); }));
     const themes = THEMES.filter(th => tasks.some(t => t.theme === th.id)).map(th => ({ id: th.id, name: th.name, color: th.color }));
-    v3dOff = window.V3D[name](main, { tasks, themes, kinds: KINDS, rel }, { open: openDetail, sel: SEL, select: id => { SEL = id || null; } });   // select: 상세 칸을 열지 않고 고른 업무만 바꿈
+    v3dOff = window.V3D[name](main, { tasks, themes, kinds: KINDS, rel }, { open: openDetail, sel: SEL, select: id => { SEL = id || null; }, node: showNode, menu: nodeMenu });   // select: 상세 칸을 열지 않고 고른 업무만 바꿈
   }
 
   const FULL = new Set(['solar', 'sky', 'branch', 'sunburst']);   // 왼쪽 여백 없이 캔버스를 꽉 채우는 보기
@@ -3933,6 +3941,21 @@ qr.readability=function(t,n){var e=qr(t),r=qr(n);return(Math.max(e.getLuminance(
   let SEL = null;
   const openDetail = id => { if (!id || !TASK[id]) return; SEL = id; post({ type: 'task', key: TASK[id].key || '' }); };
   const syncDetail = () => { if (SEL && TASK[SEL]) post({ type: 'task', key: TASK[SEL].key || '' }); };
+  // 업무 말고 다른 노드도 상세와 우클릭 메뉴(상세 보기, 지우기)를 앱에 맡긴다. 보기마다 그린 것을 아래 모양으로 넘긴다:
+  // { task: 업무 id } | { theme: 분야 id } | { type: 업무 종류 이름 } | { session: SESSIONS 항목 } | { item: 종류, name: 이름, tids: [그 항목을 쓴 업무 id] }
+  const ITEM_LABEL = { ref: 'Resource', out: 'Resource', app: 'App', topic: 'Topic', problem: 'Problem', later: 'LaterItem' };
+  const refOf = d => {
+    if (!d) return null;
+    if (d.task) { const t = TASK[d.task]; return t && t.key ? { label: 'Task', key: t.key } : null; }
+    if (d.theme) { const th = THEME[d.theme]; return th && th.key ? { label: 'Theme', key: th.key } : null; }
+    if (d.type) return TYPEKEY[d.type] ? { label: 'TaskType', key: TYPEKEY[d.type] } : null;
+    if (d.session) return d.session.key ? { label: 'Session', key: d.session.key } : null;
+    if (d.item) for (const id of d.tids || []) { const key = TASK[id]?.refs?.get(d.item + '|' + d.name); if (key) return { label: ITEM_LABEL[d.item], key }; }
+    return null;
+  };
+  const showNode = d => { const r = refOf(d); if (!r) return; if (r.label === 'Task') openDetail(d.task); else post({ type: 'node', ...r }); };
+  const nodeMenu = (d, e) => { e?.preventDefault(); const r = refOf(d); if (r) post({ type: 'nodeMenu', ...r }); };
+  document.addEventListener('contextmenu', e => { if (!e.target.closest?.('input, textarea')) e.preventDefault(); });   // 웹 기본 메뉴(다시 읽기 등)는 띄우지 않는다. 노드 위에서만 노드 메뉴 (검색창은 붙여넣기 메뉴 그대로)
   const setFocus = id => { if (!TASK[id]) return; state.focus = id; render(); $('main').scrollTop = 0; };
   $('main').addEventListener('click', e => {
     const act = e.target.closest('[data-act]');
@@ -3995,7 +4018,7 @@ qr.readability=function(t,n){var e=qr(t),r=qr(n);return(Math.max(e.getLuminance(
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => {
       if (sky) sky.g.width(sky.box.clientWidth).height(sky.box.clientHeight);
-      else if (!state.detail && ['tree', 'cosmos', 'sunburst', 'orbit', 'ring', 'radial', 'layer', 'bubble', 'gantt', 'branch'].includes(state.mode)) render();
+      else if (!state.detail && ['tree', 'cosmos', 'orbit', 'ring', 'radial', 'layer', 'bubble', 'gantt'].includes(state.mode)) render();   // 원형 차트·생키는 스스로 크기를 따라 그린다(다시 만들면 고른 분야가 풀린다)
     }, 150);
   });
   document.addEventListener('keydown', e => {
@@ -4079,13 +4102,14 @@ qr.readability=function(t,n){var e=qr(t),r=qr(n);return(Math.max(e.getLuminance(
     const cnt = id => [...themeOf.values()].filter(v => v === id).length;
     let spare = 0;
     [...tops.values()].filter(n => n.title !== '기타').sort((a, b) => (b.title in FIELD_COLORS) - (a.title in FIELD_COLORS) || cnt(b.id) - cnt(a.id))
-      .forEach(n => THEMES.push({ id: 'tt' + n.id, name: n.title, color: FIELD_COLORS[n.title] || SPARE_COLORS[spare++] || '#b9b3ae' }));
+      .forEach(n => THEMES.push({ id: 'tt' + n.id, key: byField ? n.key : null, name: n.title, color: FIELD_COLORS[n.title] || SPARE_COLORS[spare++] || '#b9b3ae' }));   // key: 분야 노드 (업무 종류로 묶을 때는 클래스라 없음)
     // 분야로 묶을 때 아직 분야가 안 붙은 업무(분야 단계 실패 등)는 기본으로 숨는 '기타' 대신 보이는 '분야 없음' 으로
     const noField = byField && nodes.some(n => n.label === 'Task' && !themeOf.has(n.id));
     if (noField) THEMES.push({ id: 'nofield', name: '분야 없음', color: '#b9b3ae' });
     THEMES.push({ id: 'etc', name: '기타', color: '#9b9490' });
 
-    const typeOf = new Map(links.filter(l => l.type === 'INSTANCE_OF' && N.get(l.source)?.label === 'Task' && N.get(l.target)).map(l => [l.source, N.get(l.target).title]));   // 업무 종류(분야 바로 아래 클래스): 가지 도표의 가운데 마디
+    const typeOf = new Map(links.filter(l => l.type === 'INSTANCE_OF' && N.get(l.source)?.label === 'Task' && N.get(l.target)).map(l => [l.source, N.get(l.target).title]));
+    Object.keys(TYPEKEY).forEach(k => delete TYPEKEY[k]); nodes.filter(n => n.label === 'TaskType').forEach(n => { TYPEKEY[n.title] = n.key; });   // 업무 종류(분야 바로 아래 클래스): 가지 도표의 가운데 마디
     const later = new Map();
     links.forEach(l => { if (l.type === 'FOR' && N.get(l.source)) (later.get(l.target) || later.set(l.target, []).get(l.target)).push(N.get(l.source)); });
     const sessOf = new Map();
@@ -4098,12 +4122,19 @@ qr.readability=function(t,n){var e=qr(t),r=qr(n);return(Math.max(e.getLuminance(
       const th = N.get(themeOf.get(tn.id)), used = ss.flatMap(s => out('USED', s.id)), open = {};
       res.forEach(r => { open['r:' + short(r.title)] = r.key; });
       used.forEach(a => { open['app:' + a.title] = a.key; });
+      // 그린 항목 이름 -> 노드 키 (종류|이름). 상세 보기와 우클릭 지우기가 쓴다
+      const refs = new Map();
+      res.forEach(r => refs.set((OUTPUT_SUBTYPES.has(r.subtype) ? 'out|' : 'ref|') + short(r.title), r.key));
+      used.forEach(a => refs.set('app|' + a.title, a.key));
+      outL('ABOUT', tn.id).map(l => N.get(l.target)).filter(Boolean).forEach(x => refs.set('topic|' + x.title, x.key));
+      ss.flatMap(s => out('HIT', s.id)).forEach(p => refs.set('problem|' + p.title, p.key));
+      (later.get(tn.id) || []).forEach(x => refs.set('later|' + short(x.title), x.key));
       const t = {
         id: 'n' + tn.id, key: tn.key, ttype: typeOf.get(tn.id) || '기타', theme: byField && !th ? 'nofield' : !th || th.title === '기타' ? 'etc' : 'tt' + th.id, title: tn.title,
         sum: ss.map(s => s.props.summary).filter(Boolean).pop() || '', win: [0, DAYS - 1], w: 1,
         ref: uniq(res.filter(r => !OUTPUT_SUBTYPES.has(r.subtype)).map(r => short(r.title))),
         out: uniq(res.filter(r => OUTPUT_SUBTYPES.has(r.subtype)).map(r => short(r.title))),
-        apps: uniq(used.map(a => a.title)), open,
+        apps: uniq(used.map(a => a.title)), open, refs,
         topics: uniq(titlesOf(byHits(outL('ABOUT', tn.id)))).slice(0, TOPICS_MAX),
         problems: uniq(ss.flatMap(s => out('HIT', s.id)).map(p => p.title)).map(p => [p, '']),
         later: (later.get(tn.id) || []).map(x => short(x.title)),
@@ -4117,7 +4148,7 @@ qr.readability=function(t,n){var e=qr(t),r=qr(n);return(Math.max(e.getLuminance(
         const start = st.getHours() * 60 + st.getMinutes();
         const len = Math.max(1, Math.round(((s.props.end || s.props.start) - s.props.start) / 60), Math.round((s.props.active_seconds || 0) / 60));
         const apps = uniq(titlesOf(byWeight(outL('USED', s.id))));                                   // 많이 쓴 앱부터
-        SESSIONS.push({ task: t, d, start, end: Math.min(24 * 60, start + len), active: Math.max(1, Math.round((s.props.active_seconds || 0) / 60)), app: apps[0] || '', apps, kind: null });
+        SESSIONS.push({ task: t, key: s.key, d, start, end: Math.min(24 * 60, start + len), active: Math.max(1, Math.round((s.props.active_seconds || 0) / 60)), app: apps[0] || '', apps, kind: null });
       });
     });
     SESSIONS.sort((a, b) => a.d - b.d || a.start - b.start);

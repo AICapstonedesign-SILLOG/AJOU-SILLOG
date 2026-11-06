@@ -28,6 +28,7 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN_DIR/WorkGraphApp" "$APP/Contents/MacOS/Sillog"
 cp -R "$ROOT/Sources/WorkGraphApp/Resources/graph" "$APP/Contents/Resources/graph"
+cp -R "$ROOT/Sources/WorkGraphApp/Resources/calendar" "$APP/Contents/Resources/calendar"   # 캘린더 화면 (FullCalendar 6, MIT)
 cp -R "$ROOT/Sources/WorkGraphApp/Resources/PluginIcons" "$APP/Contents/Resources/PluginIcons"
 cp -R "$ROOT/Sources/WorkGraphApp/Resources/Brand" "$APP/Contents/Resources/Brand"
 cp -R "$BIN_DIR/WorkGraph_WorkGraphCore.bundle" "$APP/Contents/Resources/"
@@ -66,8 +67,9 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
-# 공개 OAuth 클라이언트 ID는 앱 제공자가 빌드할 때 설정한다. 비밀키는 번들에 넣지 않는다.
-for key in WORKGRAPH_GOOGLE_CLIENT_ID WORKGRAPH_GITHUB_CLIENT_ID WORKGRAPH_NOTION_CLIENT_ID; do
+# 공개 OAuth 클라이언트 ID는 앱 제공자가 빌드할 때 설정한다. 구글 데스크톱 앱 클라이언트 시크릿은 토큰 교환에 필요하고
+# 설치형 앱에서는 비밀로 지킬 수 없는 값이라(구글 안내) 함께 넣는다. 그 밖의 비밀키는 번들에 넣지 않는다.
+for key in WORKGRAPH_GOOGLE_CLIENT_ID WORKGRAPH_GOOGLE_CLIENT_SECRET WORKGRAPH_GITHUB_CLIENT_ID WORKGRAPH_NOTION_CLIENT_ID; do
   if [ -n "${!key:-}" ]; then
     plutil -insert "$key" -string "${!key}" "$APP/Contents/Info.plist"
   fi
