@@ -15,6 +15,11 @@ public enum Permissions {
         case calendars = "Privacy_Calendars"
     }
 
+    /// 시스템 설정에 보이는 손쉬운 사용(접근성) 권한 이름. macOS 27 은 '기기 제어 및 데이터 접근'으로 부른다
+    public static var accessibilityName: String {
+        ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27 ? "기기 제어 및 데이터 접근" : "손쉬운 사용"
+    }
+
     /// 손쉬운 사용(접근성): 창 제목, URL, 문서 경로, 화면 텍스트에 필요.
     public static func accessibility(prompt: Bool) -> Bool {
         let key = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String

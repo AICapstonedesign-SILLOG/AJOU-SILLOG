@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import WorkGraphCollectors
 import WorkGraphCore
 
 private let logFill = ChatPalette.soft   // 선택 분절, 원문 상자 바탕 (채팅 탭과 같은 옅은 회색)
@@ -115,12 +116,14 @@ struct ActivityLogView: View {
         .padding(.top, 16)
     }
 
-    /// 손쉬운 사용이 꺼져 있으면 앱 이름만 쌓인다는 안내 (누르면 설정의 일반)
+    /// 손쉬운 사용이 꺼져 있으면 창 제목·주소가 남지 않는다는 안내 (누르면 설정의 일반). 화면 기록이 있으면 글자는 OCR 로만 읽는다
     private var accessibilityNotice: some View {
         Button { state.openGeneralSettings() } label: {
             HStack(spacing: 6) {
                 Image(systemName: "exclamationmark.circle.fill").foregroundStyle(Self.failColor)
-                Text("손쉬운 사용 권한이 꺼져 있어 창 제목과 주소 없이 앱 이름만 기록되고 있어요.").foregroundStyle(Brand.text)
+                Text(state.status.screenRecording
+                     ? "\(Permissions.accessibilityName) 권한이 꺼져 있어 창 제목과 주소 없이 기록되고 있어요. 화면 글자는 스크린샷에서 OCR로 읽고, 브라우저는 찍지 않아요."
+                     : "\(Permissions.accessibilityName) 권한이 꺼져 있어 창 제목과 주소 없이 앱 이름만 기록되고 있어요.").foregroundStyle(Brand.text)
                 Text("권한 켜기").foregroundStyle(Brand.ink).underline()
             }
             .font(Brand.suit(11)).padding(.top, 14).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
