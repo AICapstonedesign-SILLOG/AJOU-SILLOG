@@ -1,5 +1,5 @@
 #!/bin/bash
-# release 빌드 → 코드 서명 → ~/Applications/Sillog.app 설치.
+# release 빌드 → 코드 서명 → ~/Applications/SILLOG.app 설치.
 # 서명 인증서를 고정해 두면 다시 빌드해도 macOS 권한(손쉬운 사용·화면 기록)이 유지된다.
 #   SIGN_IDENTITY="Apple Development: ..." scripts/make-app.sh   # 인증서 지정
 #   SIGN_IDENTITY=- scripts/make-app.sh                          # ad-hoc (빌드할 때마다 권한을 다시 줘야 함)
@@ -22,7 +22,7 @@ swift build --package-path "$STAGE_DIR" -c release --product WorkGraphApp --scra
 BIN_DIR="$(swift build --package-path "$STAGE_DIR" -c release --show-bin-path --scratch-path "$BUILD_DIR" --cache-path "$BUILD_DIR/cache" --config-path "$BUILD_DIR/config" --security-path "$BUILD_DIR/security" --disable-sandbox)"
 APP="$BUILD_DIR/Sillog.app"
 APP_LINK="$ROOT/build/Sillog.app"
-INSTALLED_APP="$HOME/Applications/Sillog.app"
+INSTALLED_APP="$HOME/Applications/SILLOG.app"
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
@@ -42,8 +42,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <plist version="1.0">
 <dict>
   <key>CFBundleIdentifier</key><string>com.capstone.workgraph</string>
-  <key>CFBundleName</key><string>Sillog</string>
-  <key>CFBundleDisplayName</key><string>Sillog</string>
+  <key>CFBundleName</key><string>SILLOG</string>
+  <key>CFBundleDisplayName</key><string>SILLOG</string>
   <key>CFBundleExecutable</key><string>Sillog</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>0.1.0</string>

@@ -88,7 +88,7 @@ struct MenuBarLabel: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Image(nsImage: Self.icon(paused: paused, recording: recording))
+        Image(nsImage: Self.icon(paused: paused, recording: recording, tidying: state.batchRunning))
             .task {
                 WindowOpener.shared.open = { openWindow(id: "main") }
                 await state.bootstrap()
@@ -98,11 +98,30 @@ struct MenuBarLabel: View {
             }
     }
 
-    /// 메뉴 막대 색을 따르는 템플릿 아이콘. 녹음 중에도 평소 아이콘 그대로(빨간 점 표시 안 함, 10/30)
-    static func icon(paused: Bool, recording: Bool) -> NSImage {
-        let name = paused ? "pause.fill" : "point.3.connected.trianglepath.dotted"
-        let image = NSImage(systemSymbolName: name, accessibilityDescription: "Sillog") ?? NSImage()
+    /// 메뉴 막대 색을 따르는 심볼 실루엣 템플릿. 눈은 뚫어 그린다: 평소 세로, 녹음 중 동그랗게, 정리 중 가로로 가늘게
+    static func icon(paused: Bool, recording: Bool, tidying: Bool = false) -> NSImage {
+        guard !paused, let body = Brand.iconBody else {
+            let image = NSImage(systemSymbolName: "pause.fill", accessibilityDescription: "SILLOG") ?? NSImage()
+            image.isTemplate = true
+            return image
+        }
+        let eye: CGSize = recording ? CGSize(width: 0.15, height: 0.15)
+            : tidying ? CGSize(width: 0.15, height: 0.05)
+            : CGSize(width: 0.09, height: 0.2)
+        let image = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { rect in
+            let canvas = rect.insetBy(dx: -1.6, dy: -1.6)                    // 심볼 그림의 빈 여백을 밖으로 밀어 크게 그린다
+            body.draw(in: canvas)
+            NSGraphicsContext.current?.compositingOperation = .destinationOut
+            NSColor.black.setFill()
+            for x in [0.404, 0.596] {
+                let w = canvas.width * eye.width, h = canvas.height * eye.height
+                let frame = NSRect(x: canvas.minX + canvas.width * x - w / 2, y: canvas.minY + canvas.height * 0.34 - h / 2, width: w, height: h)
+                NSBezierPath(roundedRect: frame, xRadius: min(w, h) / 2, yRadius: min(w, h) / 2).fill()
+            }
+            return true
+        }
         image.isTemplate = true
+        image.accessibilityDescription = "SILLOG"
         return image
     }
 }

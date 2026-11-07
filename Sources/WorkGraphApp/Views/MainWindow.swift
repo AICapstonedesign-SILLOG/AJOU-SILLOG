@@ -99,7 +99,7 @@ private struct TitleBarBrand: View {
     var body: some View {
         HStack(spacing: 12) {
             if let mark = Brand.wordmark {
-                Image(nsImage: mark).resizable().scaledToFit().frame(height: 17).accessibilityLabel("SILLOG")
+                Image(nsImage: mark).resizable().scaledToFit().frame(height: 13).accessibilityLabel("SILLOG")
             } else {
                 Text("SILLOG").font(Brand.suit(13, .semibold)).foregroundStyle(Brand.ink)
             }

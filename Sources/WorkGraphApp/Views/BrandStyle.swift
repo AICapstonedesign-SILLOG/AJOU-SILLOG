@@ -45,8 +45,10 @@ enum Brand {
         return url.flatMap(NSImage.init(contentsOf:))
     }
     static let wordmark: NSImage? = brandImage("wordmark")
-    /// 앱 아이콘 (진한 먹색 원래 판, AppIcon.icns 와 같은 그림)
+    /// 브랜드 심볼 (시스템이 씌우는 회색 판 없음)
     static let iconMatte: NSImage? = brandImage("icon")
+    /// 눈을 지운 심볼. GazingMark 가 위에 눈을 그린다
+    static let iconBody: NSImage? = brandImage("icon_body")
     /// OpenAI 마크: 검은 한 색 판이라 template 로 칠해 쓴다
     static let openAIMark: NSImage? = brandImage("openai_mark")
     static let ajouEmblem: NSImage? = brandImage("ajou_emblem")
@@ -420,4 +422,83 @@ private struct HideLegacyScroller: NSViewRepresentable {
 
 extension View {
     func thinScrollLight() -> some View { modifier(ThinScrollLight()) }
+}
+
+/// 브랜드 심볼. 창이 활성일 때 눈이 커서 쪽을 살짝 보고, 깜빡이고, 아래를 축으로 숨 쉬듯 흔들린다.
+/// smiling 이면 눈이 웃는 모양이 된다. 동작 줄이기를 켜면 움직이지 않는다
+struct GazingMark: View {
+    let size: CGFloat
+    var smiling = false
+    @Environment(\.controlActiveState) private var activeState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        if Brand.iconBody == nil {
+            if let icon = Brand.iconMatte { Image(nsImage: icon).resizable().scaledToFit().frame(width: size, height: size) }
+        } else if reduceMotion {
+            eyes(offset: .zero).frame(width: size, height: size)
+        } else {
+            GeometryReader { proxy in
+                TimelineView(.animation(minimumInterval: 1.0 / 30, paused: activeState != .key)) { context in
+                    let t = context.date.timeIntervalSinceReferenceDate
+                    eyes(offset: gaze(center: CGPoint(x: proxy.frame(in: .global).midX, y: proxy.frame(in: .global).midY)), openness: Self.openness(at: t))
+                        // 주기를 어긋나게 섞어 같은 움직임이 되풀이돼 보이지 않게 한다
+                        .scaleEffect(x: 1, y: 1 + 0.012 * sin(t * 2 * .pi / 5.3), anchor: .bottom)
+                        .rotationEffect(.degrees(1.6 * sin(t * 2 * .pi / 7.1) + 0.5 * sin(t * 2 * .pi / 3.1)), anchor: .bottom)
+                }
+            }
+            .frame(width: size, height: size)
+        }
+    }
+
+    /// 눈이 뜬 정도(1 뜸, 0.1 감음). 3.7초 칸마다 칸 안의 정해진 시각에 0.18초 깜빡인다
+    private static func openness(at t: TimeInterval) -> CGFloat {
+        let slot = 3.7, length = 0.18
+        let hash = abs(sin(floor(t / slot) * 12.9898) * 43758.5453)
+        let since = t.truncatingRemainder(dividingBy: slot) - (hash - floor(hash)) * (slot - length)
+        guard since >= 0, since < length else { return 1 }
+        return max(0.1, abs(since / (length / 2) - 1))
+    }
+
+    private func eyes(offset: CGSize, openness: CGFloat = 1) -> some View {
+        ZStack {
+            Image(nsImage: Brand.iconBody!).resizable().scaledToFit()
+            ForEach([0.404, 0.596], id: \.self) { x in
+                Group {
+                    if smiling {
+                        SmileArc().stroke(.white, style: StrokeStyle(lineWidth: size * 0.05, lineCap: .round))
+                            .frame(width: size * 0.13, height: size * 0.08)
+                    } else {
+                        Capsule().fill(.white).frame(width: size * 0.0703, height: size * 0.1914).scaleEffect(x: 1, y: openness)
+                    }
+                }
+                .transition(.opacity)
+                .position(x: size * x + offset.width, y: size * 0.66 + offset.height)
+            }
+        }
+        .animation(.spring(response: 0.25, dampingFraction: 0.8), value: offset)
+        .animation(.easeOut(duration: 0.15), value: smiling)
+    }
+
+    /// 창 좌표의 심볼 중심에서 커서까지의 방향으로 눈을 옮길 거리. 200pt 안에서는 가까울수록 덜 움직인다
+    private func gaze(center: CGPoint) -> CGSize {
+        guard let window = NSApp.keyWindow, let height = window.contentView?.bounds.height else { return .zero }
+        let origin = window.convertPoint(toScreen: NSPoint(x: center.x, y: height - center.y))
+        let mouse = NSEvent.mouseLocation
+        let dx = mouse.x - origin.x, dy = origin.y - mouse.y              // 화면 좌표는 y 가 위로 커진다
+        let distance = hypot(dx, dy)
+        guard distance > 0 else { return .zero }
+        let reach = size * 0.018 * min(1, distance / 200) / distance
+        return CGSize(width: dx * reach, height: dy * reach)
+    }
+}
+
+/// 웃는 눈: 위로 볼록한 호
+private struct SmileArc: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.maxY))
+        path.addQuadCurve(to: CGPoint(x: rect.maxX, y: rect.maxY), control: CGPoint(x: rect.midX, y: rect.minY - rect.height))
+        return path
+    }
 }

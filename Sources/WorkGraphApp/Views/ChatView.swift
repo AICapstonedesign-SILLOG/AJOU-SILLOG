@@ -201,15 +201,16 @@ struct ChatView: View {
         return VStack(spacing: 0) {
             Spacer(minLength: 0)
             VStack(alignment: .leading, spacing: 0) {
-                HStack(spacing: 14) {
-                    Image(nsImage: NSApp.applicationIconImage).resizable().scaledToFit().frame(width: 36, height: 36)
-                    Text("쌓아 온 기록으로, 다음 일을 시작해요.")
-                        .font(Brand.suit(24)).tracking(-0.48).foregroundStyle(Brand.ink).lineLimit(1)
-                }.frame(maxWidth: .infinity)
+                Text("쌓아 온 기록으로 다음 일을 시작해요")
+                    .font(Brand.suit(24)).tracking(-0.48).foregroundStyle(Brand.ink).lineLimit(1)
+                    .frame(maxWidth: .infinity)
                 ChatComposer(chat: chat, library: library, modelName: modelName, openSettings: openSettings,
                              pendingRecords: pendingRecords, tidyNow: tidyNow, onOpenPlugins: { state.selectedTab = .plugins },
                              showsNotice: false, showsSkills: true)
-                    .padding(.top, 26)
+                    .overlay(alignment: .topTrailing) {             // Figma 1591:18788: 입력칸 오른쪽 위에 올라앉은 심볼
+                        GazingMark(size: 72, smiling: !chat.draft.isEmpty).offset(x: -24, y: -63).allowsHitTesting(false)
+                    }
+                    .padding(.top, 28)
                 if !results.isEmpty {
                     HStack {
                         Text("최근 결과물").font(Brand.suit(12)).foregroundStyle(Brand.tabText).padding(.leading, 4)

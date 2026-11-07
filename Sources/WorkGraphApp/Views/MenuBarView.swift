@@ -63,7 +63,7 @@ private struct MenuBarHeader: View {
                 Image(nsImage: icon).resizable().scaledToFit().frame(width: 24, height: 24).accessibilityHidden(true)
             }
             if let mark = Brand.wordmark {
-                Image(nsImage: mark).resizable().scaledToFit().frame(height: 14).accessibilityLabel("SILLOG")
+                Image(nsImage: mark).resizable().scaledToFit().frame(height: 10).accessibilityLabel("SILLOG")
             } else {
                 Text("SILLOG").font(Brand.suit(15, .semibold)).foregroundStyle(MenuColor.text)
             }
