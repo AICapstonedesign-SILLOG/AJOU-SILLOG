@@ -201,11 +201,70 @@ enum SnapshotCatalog {
         filled.items = [make("경제사 기말 범위.pdf", "경제사 기말 범위.pdf", "upload", 4, "x"), make("캡스톤 회의록.docx", "캡스톤 회의록.docx", "upload", 11, "x"),
                         make("경제사 기말 범위 정리", "정리.md", "note", 2, "# 경제사 기말 범위 정리\n산업혁명과 대공황의 원인을 정리한 답변입니다."),
                         make("AI리터러시 오답 정리", "오답.md", "note", 5, "프롬프트 작성 오답을 모은 답변입니다.")]
-        return ["home", "", "recording", "upload", "generated", "note"].map { kind in
+        let sample = [libraryHomeSample(name: "LB-home-few", counts: (7, 2, 2, 3), fieldShares: [3, 2, 4, 0, 1, 4], spanDays: 28, fixedDates: true),
+                      libraryHomeSample(name: "LB-home-many", counts: (642, 187, 96, 359), fieldShares: [412, 286, 233, 118, 147, 88], spanDays: 390)]
+        return sample + ["home", "", "recording", "upload", "generated", "note"].map { kind in
             Snapshot(name: "LB-\(kind.isEmpty ? "all" : kind)", size: window, view: AnyView(LibraryView(library: library, initialKind: kind).environmentObject(state)))
         } + ["upload", "note"].map { kind in
             Snapshot(name: "LB-\(kind)-data", size: window, view: AnyView(LibraryView(library: filled, initialKind: kind).environmentObject(state)))
         }
+    }
+
+    /// 보관함 홈 예시 (Figma LB-25, LB-26): 스냅샷 전용 가짜 자료. 분야는 업무 6개와 대화 초점으로 나눈다
+    private static func libraryHomeSample(name: String, counts: (Int, Int, Int, Int), fieldShares: [Int], spanDays: Double, fixedDates: Bool = false) -> Snapshot {
+        let fieldNames = ["산출물작성", "정보수집", "학습", "행정처리", "커뮤니케이션", "분야 없음"]
+        let tasks = fieldNames.enumerated().map { i, field in
+            TaskSummary(id: Int64(i + 1), key: "t\(i + 1)", title: "\(field) 업무", taskType: nil, activeSeconds: 0, lastActive: 0, sessionCount: 0,
+                        theme: i == 5 ? nil : field, field: i == 5 ? nil : field)
+        }
+        let total = max(fieldShares.reduce(0, +), 1)
+        var seed: UInt64 = 7
+        func random() -> Double { seed = seed &* 6364136223846793005 &+ 1442695040888963407; return Double(seed >> 33) / Double(1 << 31) }
+        let now = Date().timeIntervalSince1970
+        // 앞쪽(오래된 쪽)은 드물고 최근으로 갈수록 많이 쌓인다. 가장 새 항목은 이틀 전
+        func ago() -> Double { (spanDays * (1 - random().squareRoot()) + 1) * 86_400 }
+        // 비율대로 정확히 나누도록 분야 칸을 펴서 섞어 둔다
+        var pool = fieldShares.enumerated().flatMap { Array(repeating: $0.offset, count: $0.element) }
+        for i in stride(from: pool.count - 1, to: 0, by: -1) { pool.swapAt(i, Int(random() * Double(i + 1))) }
+        func fieldIndex() -> Int { pool.popLast() ?? 0 }
+        // LB-25 날짜: 10/3부터 10/27까지 아홉 건, 나머지 다섯 건은 10/30 (가장 새 것 14:18)
+        var made = 0
+        func created() -> Double {
+            defer { made += 1 }
+            guard fixedDates else { return now - ago() }
+            let cal = Calendar.current
+            let day = made < 9 ? DateComponents(year: 2026, month: 10, day: 3 + made * 3, hour: 10)
+                               : DateComponents(year: 2026, month: 10, day: 30, hour: 14, minute: 18 - (13 - made) * 7)
+            return cal.date(from: day)?.timeIntervalSince1970 ?? now
+        }
+        guard let database = try? WGDatabase.inMemory() else { return Snapshot(name: name, size: window, view: AnyView(EmptyView())) }
+        let state = AppState(preview: { s in
+            s.phase = .ready; s.status = collector(); s.selectedTab = .records; s.taskList = tasks
+            for n in 0..<counts.0 {
+                let started = created()
+                let tid = Int64(fieldIndex() + 1)
+                // fixedDates: 받아쓰기 완료 2, 내용 없음 2, 실패 3, 총 1분 34초 (Figma LB-25)
+                let few = fixedDates
+                let dur = few ? [30.0, 24, 20, 20, 0, 0, 0][n % 7] : (n % 9 == 0 ? 0 : Double(10 + n % 50))
+                let empty = few ? (n == 2 || n == 3) : n % 14 == 0
+                let fail = few ? n >= 4 : n % 25 == 0
+                var r = Recording(startedAt: started, endedAt: started + 20, duration: dur, audioPath: "",
+                                  title: "녹음 \(n + 1)", transcript: empty || fail ? "" : "내용", status: fail ? .failed : .ready, taskId: tid)
+                _ = try? RecordingStore(database).insert(r)
+            }
+        }, database: database)
+        let library = LibraryState(db: database)
+        var items: [ChatLibraryItem] = []
+        for (kind, n) in [("upload", counts.1), ("generated", counts.2), ("note", counts.3)] {
+            for k in 0..<n {
+                var item = ChatLibraryItem(title: "\(LibraryLook.name(kind)) \(k + 1)", filename: kind == "note" ? "답변\(k).md" : "자료\(k).\(kind == "upload" ? "pdf" : "html")", kind: kind)
+                item.createdAt = created()
+                library.itemFocuses[item.id] = [ChatFocus(kind: .task, key: "t\(fieldIndex() + 1)", title: "")]
+                items.append(item)
+            }
+        }
+        library.items = items
+        return Snapshot(name: name, size: window, view: AnyView(LibraryView(library: library, initialKind: "home").environmentObject(state)))
     }
 
     /// 채팅: 머리의 모델 칩 (누르면 그 자리에서 채팅 모델을 고른다)
@@ -219,7 +278,15 @@ enum SnapshotCatalog {
             let offline = OpenAICompatClient(baseURL: URL(string: "http://localhost:5010/v1")!, model: "preview", apiKey: nil)   // 그리기만 하고 부르지 않는다
             s.chat = ChatState(db: database, makeClient: { .model(offline) }, makeProjectClient: { offline })
         })
-        return [Snapshot(name: "CH-01", size: window, view: AnyView(MainWindow().environmentObject(state)))] + chatFocus
+        let tab = { (section: CustomizeSection) -> AppState in
+            AppState(preview: { s in
+                s.phase = .ready; s.status = collector(); s.selectedTab = .plugins; s.customizeSection = section
+                s.chat = state.chat
+            })
+        }
+        return [Snapshot(name: "CH-01", size: window, view: AnyView(MainWindow().environmentObject(state))),
+                Snapshot(name: "CH-13", size: window, view: AnyView(MainWindow().environmentObject(tab(.plugins)))),
+                Snapshot(name: "CH-59", size: window, view: AnyView(MainWindow().environmentObject(tab(.skills))))] + chatFocus
     }
 
     /// 채팅 범위: 업무 하나로 좁힌 대화(정리 전 기록 안내 포함)와 범위 고르기 창

@@ -7,5 +7,4 @@ enum ChatPane: Equatable {
     case projects             // CH-49, 50
     case project(String)      // CH-51~57, ChatProject.id
     case results              // CH-45
-    case plugins              // CH-13, 25~28, 37
 }

@@ -67,7 +67,8 @@ public struct ChatAutomationProposal: Codable, Equatable, Sendable {
 public struct ChatConversation: Codable, Identifiable, Sendable {
     public var id = UUID().uuidString
     public var title = "새 대화"
-    public var skillID = "general"
+    /// 비면 자동 선택(전체 지침). 예전 저장값 skillID 는 읽을 때 옮긴다.
+    public var skillIDs: [String] = []
     public var scope = ChatScope()
     public var projectID: String?
     public var updatedAt = Date().timeIntervalSince1970
@@ -77,6 +78,28 @@ public struct ChatConversation: Codable, Identifiable, Sendable {
     /// Returns: 고유 ID를 가진 빈 대화.
     /// Raises: 없음.
     public init() {}
+
+    private enum CodingKeys: String, CodingKey { case id, title, skillIDs, skillID, scope, projectID, updatedAt, pinnedAt }
+
+    /// Args: decoder는 저장된 대화이다. skillIDs 가 없으면 예전 skillID 를 옮기고 "general" 은 빈 배열로 둔다.
+    public init(from decoder: Decoder) throws {
+        let v = try decoder.container(keyedBy: CodingKeys.self)
+        id = try v.decodeIfPresent(String.self, forKey: .id) ?? id
+        title = try v.decodeIfPresent(String.self, forKey: .title) ?? title
+        if let ids = try v.decodeIfPresent([String].self, forKey: .skillIDs) { skillIDs = ids }
+        else if let old = try v.decodeIfPresent(String.self, forKey: .skillID), old != "general" { skillIDs = [old] }
+        scope = try v.decodeIfPresent(ChatScope.self, forKey: .scope) ?? scope
+        projectID = try v.decodeIfPresent(String.self, forKey: .projectID)
+        updatedAt = try v.decodeIfPresent(Double.self, forKey: .updatedAt) ?? updatedAt
+        pinnedAt = try v.decodeIfPresent(Double.self, forKey: .pinnedAt)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var v = encoder.container(keyedBy: CodingKeys.self)
+        try v.encode(id, forKey: .id); try v.encode(title, forKey: .title); try v.encode(skillIDs, forKey: .skillIDs)
+        try v.encode(scope, forKey: .scope); try v.encodeIfPresent(projectID, forKey: .projectID)
+        try v.encode(updatedAt, forKey: .updatedAt); try v.encodeIfPresent(pinnedAt, forKey: .pinnedAt)
+    }
 }
 
 public struct ChatSearchHit: Identifiable, Equatable, Sendable {
@@ -116,7 +139,9 @@ public struct ChatAutomation: Codable, Identifiable, Sendable {
     public var id = UUID().uuidString
     public var title: String
     public var prompt: String
+    /// 저장 형식 유지: 스킬 여럿은 쉼표로 이어 쓰고, 없으면 "general".
     public var skillID: String
+    public var skillIDs: [String] { skillID == "general" ? [] : skillID.split(separator: ",").map(String.init) }
     public var scope: ChatScope
     public var intervalHours: Int
     public var nextRun: Double
@@ -128,7 +153,7 @@ public struct ChatAutomation: Codable, Identifiable, Sendable {
     /// Returns: 첫 실행 시각이 지정된 예약.
     /// Raises: 없음.
     public init(proposal: ChatAutomationProposal, conversation: ChatConversation, now: Double = Date().timeIntervalSince1970) {
-        title = proposal.title; prompt = proposal.prompt; skillID = conversation.skillID
+        title = proposal.title; prompt = proposal.prompt; skillID = conversation.skillIDs.isEmpty ? "general" : conversation.skillIDs.joined(separator: ",")
         scope = conversation.scope; scope.projectID = conversation.projectID; intervalHours = proposal.intervalHours
         nextRun = now + Double(intervalHours) * 3600
     }

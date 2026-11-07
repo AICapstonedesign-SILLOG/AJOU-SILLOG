@@ -5,6 +5,8 @@ import WorkGraphCore
 @MainActor
 final class LibraryState: ObservableObject {
     @Published var items: [ChatLibraryItem] = []
+    /// 보관 자료 id -> 연결 대화의 초점 (홈의 분야 기준). 없으면 "분야 없음"
+    @Published var itemFocuses: [String: [ChatFocus]] = [:]
     @Published var busy = false
     @Published var error: String?
     var onChange: (() -> Void)?
@@ -13,7 +15,7 @@ final class LibraryState: ObservableObject {
     init(db: WGDatabase) { self.db = db; store = LibraryStore(db); reload() }
 
     func reload() {
-        do { items = try store.items() } catch { self.error = error.localizedDescription }
+        do { items = try store.items(); itemFocuses = try store.itemFocuses() } catch { self.error = error.localizedDescription }
     }
 
     func results(limit: Int? = nil) -> [ChatLibraryItem] {

@@ -59,7 +59,7 @@ final class MenuLayoutTests: XCTestCase {
     ]
 
     func testTheRailHasFourTabs() {
-        XCTAssertEqual(MainWindow.Tab.allCases.map(\.rawValue), ["그래프", "채팅", "기록 자료", "설정"])
+        XCTAssertEqual(MainWindow.Tab.allCases.map(\.rawValue), ["그래프", "채팅", "기록 자료", "설정", "플러그인"])
     }
 
     // 업무 목록은 그래프 탭에만: 채팅·기록 자료·설정에서는 본문만

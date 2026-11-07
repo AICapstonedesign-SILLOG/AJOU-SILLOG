@@ -500,7 +500,6 @@ struct OnboardingSheet: View {
                 smallPermission(.speech, icon: "perm_speech", title: "음성 인식", detail: "녹음을 Mac 안에서\n글로 받아써요")
                 smallPermission(.downloads, icon: "perm_folder", title: "다운로드 폴더", detail: "새로 받은 파일을\n업무에 이어요")
                 smallPermission(.documents, icon: "perm_folder", title: "문서 폴더", detail: "받아쓴 녹음을\n저장해요")
-                smallPermission(.calendar, icon: "", symbol: "calendar", title: "캘린더", detail: "오늘 일정을 보고\n제안을 등록해요")
                 smallPermission(.loginItem, icon: "perm_login", title: "로그인할 때 열기", detail: "켜 두면\n빠짐없이 기록해요")
             }
             Text("손쉬운 사용과 화면 기록은 시스템 설정에서 켜요. 화면 기록은 켠 뒤 앱을 다시 실행해야 해요.")
@@ -539,15 +538,10 @@ struct OnboardingSheet: View {
         .frame(height: 32, alignment: .leading)
     }
 
-    private func smallPermission(_ item: OnboardingPermissions.Item, icon: String, symbol: String? = nil, title: String, detail: String) -> some View {
+    private func smallPermission(_ item: OnboardingPermissions.Item, icon: String, title: String, detail: String) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .center) {
-                if let symbol {
-                    Image(systemName: symbol).font(.system(size: 15, weight: .medium)).foregroundStyle(OB.brown)
-                        .frame(width: 30, height: 30).background(RoundedRectangle(cornerRadius: 8).fill(OB.chip))
-                } else {
-                    ArtImage(name: icon, size: 30)
-                }
+                ArtImage(name: icon, size: 30)
                 Spacer(minLength: 4)
                 if perms.granted.contains(item) {
                     grantedLabel(size: 12).frame(height: 28)
@@ -760,13 +754,13 @@ private struct OBPillStyle: ButtonStyle {
     }
 }
 
-// MARK: 추가 권한 (알림, 마이크, 음성 인식, 폴더, 캘린더, 로그인 항목)
+// MARK: 추가 권한 (알림, 마이크, 음성 인식, 폴더, 로그인 항목)
 
 /// 온보딩 권한 화면의 작은 타일 일곱 개의 상태와 요청. 상태는 묻지 않고 읽을 수 있는 것만 읽고(알림, 마이크, 음성 인식, 로그인 항목),
 /// 폴더는 읽기를 시도해야 알 수 있어(처음이면 시스템이 묻는다) 누른 뒤에만 허용됨으로 바뀐다
 @MainActor
 final class OnboardingPermissions: ObservableObject {
-    enum Item: String, CaseIterable { case notifications, microphone, speech, downloads, documents, calendar, loginItem }
+    enum Item: String, CaseIterable { case notifications, microphone, speech, downloads, documents, loginItem }
 
     @Published private(set) var granted: Set<Item> = []
     /// WORKGRAPH_ONBOARDING_GRANTED=notifications,loginItem 처럼 정해 두면 시스템을 읽지 않고 그 상태로 고정한다 (스크린샷용)
@@ -793,7 +787,6 @@ final class OnboardingPermissions: ObservableObject {
             let settings = await UNUserNotificationCenter.current().notificationSettings()
             if settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional { now.insert(.notifications) }
         }
-        if CalendarService.isGranted { now.insert(.calendar) }
         if AVCaptureDevice.authorizationStatus(for: .audio) == .authorized { now.insert(.microphone) }
         if SFSpeechRecognizer.authorizationStatus() == .authorized { now.insert(.speech) }
         // 로그인 항목 상태 조회는 수 초 걸릴 수 있는 동기 XPC 호출이라 메인 스레드 밖에서 읽는다
@@ -809,7 +802,6 @@ final class OnboardingPermissions: ObservableObject {
         case .speech: await requestSpeech(openSettingsOnFail)
         case .downloads: await requestFolder(.downloadsDirectory, item, openSettingsOnFail)
         case .documents: await requestFolder(.documentDirectory, item, openSettingsOnFail)
-        case .calendar: await CalendarService.shared.requestAccess(openSettingsOnFail: openSettingsOnFail)
         case .loginItem: await requestLoginItem(openSettingsOnFail)
         }
         await refresh()

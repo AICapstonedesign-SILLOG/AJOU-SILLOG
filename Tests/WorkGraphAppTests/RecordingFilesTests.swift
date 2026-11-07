@@ -19,7 +19,7 @@ final class RecordingFilesTests: XCTestCase {
     func testAcceptingAndUndoingTheSuggestionMovesTheRecordingText() throws {
         let db = try WGDatabase.inMemory()
         let state = AppState(preview: { $0.phase = .ready }, database: db)
-        let source = folder.appendingPathComponent("Sillog 녹음"), target = folder.appendingPathComponent("학교/자료구조")
+        let source = folder.appendingPathComponent("SILLOG 녹음"), target = folder.appendingPathComponent("학교/자료구조")
         try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
         let md = source.appendingPathComponent("2026-10-10 자료구조 3주차 강의.md")
         try Data("# 자료구조 3주차 강의".utf8).write(to: md)

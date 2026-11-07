@@ -1,7 +1,7 @@
 import SwiftUI
 import WorkGraphCore
 
-/// 대화 머리(제목 아래, 모델 칩 옆)의 범위 표시: 지금 채팅이 보는 기록 (모든 기록 · 고른 업무·분야 · 기록 안 씀). 누르면 분야→업무 나무로 바꾼다
+/// 대화 머리(제목 아래, 모델 칩 옆)의 범위 표시: 지금 채팅이 보는 기록 (모든 기록 · 고른 업무·분야 · 기록 안 씀). 누르면 분야 칩 + 업무 목록으로 바꾼다
 struct ChatFocusButton: View {
     @ObservedObject var chat: ChatState
     @State private var picking = false
@@ -44,7 +44,7 @@ struct ChatFocusButton: View {
     }
 }
 
-/// 범위 고르기 창 (◎ 단추): 분야→업무 나무. 닫히면 입력칸으로 커서를 옮긴다
+/// 범위 고르기 창 (◎ 단추): 분야 칩 + 업무 목록. 닫히면 입력칸으로 커서를 옮긴다
 struct ChatFocusPicker: View {
     @ObservedObject var chat: ChatState
 
@@ -56,7 +56,7 @@ struct ChatFocusPicker: View {
     }
 }
 
-/// 새 대화 첫 화면: 무엇에 대해 이야기할지 분야→업무 나무로 바로 고른다. 고를 때마다 커서가 입력칸으로 간다
+/// 새 대화 첫 화면: 무엇에 대해 이야기할지 업무 목록으로 바로 고른다. 고를 때마다 커서가 입력칸으로 간다
 struct ChatStartChoices: View {
     @ObservedObject var chat: ChatState
 
@@ -76,60 +76,62 @@ struct ChatStartChoices: View {
     }
 }
 
-/// 범위 나무: 왼쪽 업무 목록처럼 분야 폴더 아래 업무. 체크로 여러 개를 고른다.
-/// 폴더를 체크하면 분야 전체(나중에 늘어난 업무 포함), 업무 몇 개만 체크하면 그 업무들만 (폴더는 '일부'). 아무것도 안 고르면 모든 기록
+/// 범위 목록 (Figma CH-03, CH-04, CH-40): 검색 칸, 모든 기록, 분야 칩 한 줄, 업무 평평한 목록(체크 칸 + 분야 색 점), 기록 안 씀.
+/// 칩은 보이는 목록만 거르고 고른 범위는 바꾸지 않는다. 범위는 업무 체크로 고른다. 아무것도 안 고르면 모든 기록
 struct ChatFocusTree: View {
     @ObservedObject var chat: ChatState
     /// 고를 때마다 입력칸으로 커서를 옮길지 (첫 화면은 옮기고, 고르기 창은 닫힐 때 옮긴다)
     var movesCursor: Bool
     var maxHeight: CGFloat
     @State private var query = ""
-    @State private var collapsed: Set<String> = []
-
-    /// 분야 폴더: key 가 없으면 '분야 없음' (분야로 고를 수 없어 안의 업무를 하나씩 고른다)
-    struct Folder: Identifiable, Equatable {
-        let key: String?
-        let title: String
-        let tasks: [ChatFocus]
-        var id: String { key ?? "" }
-        var theme: ChatFocus? { key.map { ChatFocus(kind: .theme, key: $0, title: title) } }
-    }
-
-    enum Mark { case none, some, all }
+    @State private var fieldFilter: Set<String> = []
 
     var body: some View {
         let scope = chat.current.scope
         let selection = scope.useActivity ? scope.focus : []
         let needle = query.trimmingCharacters(in: .whitespaces)
+        let tasks = chat.focusChoices.tasks
+        let fields = Self.fields(chat.focusChoices)
+        let filter = fieldFilter.intersection(fields.map(\.name))                  // 그 분야 업무가 없어졌으면 무시
+        let colors = Dictionary(uniqueKeysWithValues: fields.map { ($0.name, $0.color) })
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 7) {
                 Image(systemName: "magnifyingglass").font(.system(size: 11)).foregroundStyle(Brand.gray)
                 TextField("업무·분야 검색", text: $query).textFieldStyle(.plain).font(Brand.suit(12))
             }
             .padding(.horizontal, 14).frame(height: 32)
-            Rectangle().fill(Brand.line).frame(height: 1).padding(.horizontal, 12)     // CH-04: 바탕 상자 없이 아래 구분선
+            Rectangle().fill(Brand.line).frame(height: 1).padding(.horizontal, 12)
             ScrollView {
                 VStack(alignment: .leading, spacing: 1) {
                     if needle.isEmpty {
-                        row(title: "모든 기록", detail: "기본", symbol: scope.useActivity && scope.focus.isEmpty ? "largecircle.fill.circle" : "circle", indent: 0) {
+                        row(title: "모든 기록", detail: "기본", mark: scope.useActivity && scope.focus.isEmpty ? .check : .none) {
                             chat.setFocus([], movesCursor: movesCursor)
                         }
                     }
-                    ForEach(Self.filtered(Self.folders(chat.focusChoices), query: needle)) { folder in
-                        let open = !needle.isEmpty || !collapsed.contains(folder.id)
-                        folderRow(folder, open: open, selection: selection)
-                        if open {
-                            ForEach(folder.tasks, id: \.key) { task in
-                                let on = Self.isOn(task, in: folder, selection: selection)
-                                row(title: task.title, detail: "", symbol: on ? "checkmark.square.fill" : "square", indent: 36) {
-                                    chat.setFocus(Self.toggle(task, in: folder, selection: selection), movesCursor: movesCursor)
-                                }
-                            }
+                    if !fields.isEmpty {
+                        ChatChipFlow(spacing: 6) {
+                            ForEach(fields) { field in chip(field, on: filter.contains(field.name)) }
                         }
+                        .padding(.horizontal, 8).padding(.vertical, 6)
+                    }
+                    ForEach(Self.visible(tasks, filter: filter, query: needle), id: \.focus.key) { task in
+                        let on = Self.isOn(task, tasks: tasks, selection: selection)
+                        Button { chat.setFocus(Self.toggle(task, tasks: tasks, selection: selection), movesCursor: movesCursor) } label: {
+                            HStack(spacing: 9) {
+                                Image(systemName: on ? "checkmark.square.fill" : "square").font(.system(size: 13))
+                                    .foregroundStyle(on ? Brand.accentDark : Brand.gray)
+                                Circle().fill(colors[task.field ?? TasksView.noField] ?? Brand.sub).frame(width: 7, height: 7)
+                                Text(task.focus.title).font(Brand.suit(12)).foregroundStyle(Brand.ink).lineLimit(1)
+                                Spacer(minLength: 0)
+                            }
+                            .padding(.horizontal, 8).frame(height: 31).contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain).hoverHighlight(cornerRadius: 5)
+                        .accessibilityLabel("\(task.focus.title) \(on ? "고름" : "안 고름")")
                     }
                     if needle.isEmpty {
                         Rectangle().fill(Brand.line).frame(height: 1).padding(.vertical, 6).padding(.horizontal, 6)
-                        row(title: "기록 안 씀", detail: "웹·파일·보관함만", symbol: scope.useActivity ? "circle" : "largecircle.fill.circle", indent: 0) {
+                        row(title: "기록 안 씀", detail: "웹·파일·보관함만", mark: scope.useActivity ? .none : .check) {
                             chat.useNoRecords()
                         }
                     }
@@ -141,46 +143,41 @@ struct ChatFocusTree: View {
         }
     }
 
-    private func folderRow(_ folder: Folder, open: Bool, selection: [ChatFocus]) -> some View {
-        let mark = Self.mark(folder, in: selection)
-        return HStack(spacing: 0) {
-            Button {
-                if collapsed.contains(folder.id) { collapsed.remove(folder.id) } else { collapsed.insert(folder.id) }
-            } label: {
-                Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold)).foregroundStyle(Brand.gray)
-                    .rotationEffect(.degrees(open ? 90 : 0)).frame(width: 22, height: 31).contentShape(Rectangle())
+    /// 분야 칩: 색 점 + 이름. 누르면 목록만 그 분야로 좁히고(여러 개), 다시 누르면 풀린다
+    private func chip(_ field: TasksView.FieldStat, on: Bool) -> some View {
+        Button {
+            if fieldFilter.contains(field.name) { fieldFilter.remove(field.name) } else { fieldFilter.insert(field.name) }
+        } label: {
+            HStack(spacing: 5) {
+                Circle().fill(field.color).frame(width: 7, height: 7)
+                Text(field.name).font(Brand.suit(11, on ? .medium : .regular)).lineLimit(1)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("\(folder.title) \(open ? "접기" : "펼치기")")
-            Button { chat.setFocus(Self.toggle(folder, in: selection), movesCursor: movesCursor) } label: {
-                HStack(spacing: 7) {
-                    Image(systemName: mark == .all ? "checkmark.square.fill" : mark == .some ? "minus.square.fill" : "square")
-                        .font(.system(size: 13)).foregroundStyle(mark == .none ? Brand.gray : Brand.accentDark)
-                    Image(systemName: "folder").font(.system(size: 11)).foregroundStyle(Brand.tabText)
-                    Text(folder.title).font(Brand.suit(12, .bold)).foregroundStyle(Brand.ink).lineLimit(1)
-                    Spacer(minLength: 6)
-                    Text("\(folder.tasks.count)").font(.custom("Jost-Light", size: 12)).foregroundStyle(Brand.gray)
-                }
-                .padding(.trailing, 8).frame(height: 31).contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("\(folder.title) 분야 \(mark == .all ? "고름" : mark == .some ? "일부 고름" : "안 고름")")
+            .foregroundStyle(on ? Brand.chipSelectedText : Brand.tabText)
+            .padding(.horizontal, 9).frame(height: 24)
+            .background(on ? Brand.chipSelectedFill : Brand.chipFill, in: Capsule())
+            .overlay(Capsule().strokeBorder(on ? Brand.chipSelectedBorder : Brand.line, lineWidth: 1))
+            .contentShape(Capsule())
         }
-        .hoverHighlight(cornerRadius: 5)
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(field.name) 분야 \(on ? "골라짐" : "안 골라짐")")
     }
 
-    private func row(title: String, detail: String, symbol: String, indent: CGFloat, action: @escaping () -> Void) -> some View {
+    private enum Mark { case none, check }
+
+    /// 모든 기록, 기록 안 씀: 고른 줄 앞에만 ✓ (자리는 늘 비워 둔다)
+    private func row(title: String, detail: String, mark: Mark, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: 7) {
-                Image(systemName: symbol).font(.system(size: 13))
-                    .foregroundStyle(symbol == "square" || symbol == "circle" ? Brand.gray : Brand.accentDark)
+            HStack(spacing: 9) {
+                Image(systemName: "checkmark").font(.system(size: 11, weight: .semibold)).foregroundStyle(Brand.ink)
+                    .frame(width: 13).opacity(mark == .check ? 1 : 0)
                 Text(title).font(Brand.suit(12)).foregroundStyle(Brand.ink).lineLimit(1)
                 Spacer(minLength: 8)
-                if !detail.isEmpty { Text(detail).font(Brand.suit(10)).foregroundStyle(Brand.gray).lineLimit(1) }
+                Text(detail).font(Brand.suit(10)).foregroundStyle(Brand.gray).lineLimit(1)
             }
-            .padding(.leading, 8 + indent).padding(.trailing, 8).frame(height: 31).contentShape(Rectangle())
+            .padding(.horizontal, 8).frame(height: 31).contentShape(Rectangle())
         }
         .buttonStyle(.plain).hoverHighlight(cornerRadius: 5)
+        .accessibilityLabel("\(title) \(mark == .check ? "고름" : "안 고름")")
     }
 
     // MARK: 고르기 규칙 (화면 없이 시험한다)
@@ -188,51 +185,37 @@ struct ChatFocusTree: View {
     /// 같은 업무·분야인지 (이름은 바뀌었을 수 있어 종류와 key 로 본다)
     static func same(_ a: ChatFocus, _ b: ChatFocus) -> Bool { a.kind == b.kind && a.key == b.key }
 
-    /// 최근에 일한 분야 순 폴더, 분야가 없는 업무는 맨 아래 '분야 없음'
-    static func folders(_ choices: ChatFocusChoices) -> [Folder] {
-        var result = choices.themes.map { theme in
-            Folder(key: theme.focus.key, title: theme.focus.title, tasks: choices.tasks.filter { $0.themeKey == theme.focus.key }.map(\.focus))
-        }
-        let loose = choices.tasks.filter { $0.themeKey == nil }.map(\.focus)
-        if !loose.isEmpty { result.append(Folder(key: nil, title: "분야 없음", tasks: loose)) }
-        return result
+    /// 분야 칩: 업무 탭 분야 막대와 같은 이름, 색, 순서 (업무 목록을 그쪽 계산에 그대로 넣는다)
+    static func fields(_ choices: ChatFocusChoices) -> [TasksView.FieldStat] {
+        TasksView.fieldStats(choices.tasks.map {
+            TaskSummary(id: 0, key: $0.focus.key, title: $0.focus.title, taskType: nil, activeSeconds: 0, lastActive: 0, sessionCount: 1, theme: $0.theme, field: $0.field)
+        })
     }
 
-    /// 검색: 분야 이름이 맞으면 그 분야 업무 전체, 아니면 이름이 맞는 업무만
-    static func filtered(_ folders: [Folder], query: String) -> [Folder] {
-        guard !query.isEmpty else { return folders }
-        return folders.compactMap { folder in
-            if folder.title.localizedCaseInsensitiveContains(query) { return folder }
-            let tasks = folder.tasks.filter { $0.title.localizedCaseInsensitiveContains(query) }
-            return tasks.isEmpty ? nil : Folder(key: folder.key, title: folder.title, tasks: tasks)
+    /// 보이는 업무: 칩을 눌렀으면 그 분야들만, 검색어가 있으면 업무 이름이나 분야 이름이 맞는 것만. 받은 순서(최근에 일한 순) 그대로
+    static func visible(_ tasks: [ChatFocusChoices.TaskItem], filter: Set<String>, query: String) -> [ChatFocusChoices.TaskItem] {
+        tasks.filter { task in
+            (filter.isEmpty || filter.contains(task.field ?? TasksView.noField))
+                && (query.isEmpty || task.focus.title.localizedCaseInsensitiveContains(query) || (task.field ?? "").localizedCaseInsensitiveContains(query))
         }
     }
 
-    static func mark(_ folder: Folder, in selection: [ChatFocus]) -> Mark {
-        if let theme = folder.theme, selection.contains(where: { same($0, theme) }) { return .all }
-        let picked = folder.tasks.filter { task in selection.contains { same($0, task) } }.count
-        return picked == 0 ? .none : picked == folder.tasks.count ? .all : .some
+    /// 업무가 골라졌는지. 예전 대화에 저장된 분야 범위가 이 업무의 분야면 골라진 것으로 본다
+    static func isOn(_ task: ChatFocusChoices.TaskItem, tasks: [ChatFocusChoices.TaskItem], selection: [ChatFocus]) -> Bool {
+        selection.contains { same($0, task.focus) } || coveringTheme(task, selection) != nil
     }
 
-    static func isOn(_ task: ChatFocus, in folder: Folder, selection: [ChatFocus]) -> Bool {
-        selection.contains { same($0, task) } || folder.theme.map { theme in selection.contains { same($0, theme) } } == true
-    }
-
-    /// 폴더 체크: 다 골라져 있으면 빼고, 아니면 분야 전체로 (분야 없음은 안의 업무를 하나씩)
-    static func toggle(_ folder: Folder, in selection: [ChatFocus]) -> [ChatFocus] {
-        let rest = selection.filter { item in
-            !folder.tasks.contains { same($0, item) } && !(folder.theme.map { same($0, item) } ?? false)
+    /// 업무 체크: 넣고 빼기. 예전 분야 범위가 덮고 있던 업무면 분야 범위를 그 분야 업무들로 풀어서 이 업무만 뺀다
+    static func toggle(_ task: ChatFocusChoices.TaskItem, tasks: [ChatFocusChoices.TaskItem], selection: [ChatFocus]) -> [ChatFocus] {
+        if let theme = coveringTheme(task, selection) {
+            return selection.filter { !same($0, theme) } + tasks.filter { $0.themeKey == theme.key && $0.focus.key != task.focus.key }.map(\.focus)
         }
-        if mark(folder, in: selection) == .all { return rest }
-        return rest + (folder.theme.map { [$0] } ?? folder.tasks)
+        if selection.contains(where: { same($0, task.focus) }) { return selection.filter { !same($0, task.focus) } }
+        return selection + [task.focus]
     }
 
-    /// 업무 체크: 분야 전체가 골라져 있으면 이 업무만 뺀 나머지 업무들로 풀고, 아니면 이 업무를 넣고 뺀다
-    static func toggle(_ task: ChatFocus, in folder: Folder, selection: [ChatFocus]) -> [ChatFocus] {
-        if let theme = folder.theme, selection.contains(where: { same($0, theme) }) {
-            return selection.filter { !same($0, theme) } + folder.tasks.filter { !same($0, task) }
-        }
-        if selection.contains(where: { same($0, task) }) { return selection.filter { !same($0, task) } }
-        return selection + [task]
+    private static func coveringTheme(_ task: ChatFocusChoices.TaskItem, _ selection: [ChatFocus]) -> ChatFocus? {
+        guard let key = task.themeKey else { return nil }
+        return selection.first { $0.kind == .theme && $0.key == key }
     }
 }

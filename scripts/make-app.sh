@@ -55,8 +55,6 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>NSMicrophoneUsageDescription</key><string>메뉴 막대에서 녹음할 때 마이크 소리를 녹음합니다.</string>
   <key>NSSpeechRecognitionUsageDescription</key><string>녹음한 말을 이 Mac 안에서 글로 받아씁니다.</string>
   <key>NSDocumentsFolderUsageDescription</key><string>받아쓴 녹음을 문서 폴더의 'Sillog 녹음'에 저장합니다.</string>
-  <key>NSCalendarsFullAccessUsageDescription</key><string>오늘 일정을 메뉴 막대에 보여 주고, 기록에서 찾은 일정을 확인한 뒤 캘린더에 등록합니다.</string>
-  <key>NSCalendarsUsageDescription</key><string>오늘 일정을 메뉴 막대에 보여 주고, 기록에서 찾은 일정을 확인한 뒤 캘린더에 등록합니다.</string>
   <key>NSAppTransportSecurity</key>
   <dict>
     <key>NSAllowsLocalNetworking</key><true/>

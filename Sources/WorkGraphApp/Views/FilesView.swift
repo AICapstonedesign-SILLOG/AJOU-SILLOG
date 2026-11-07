@@ -24,7 +24,7 @@ struct FilesView: View {
                 emptyState
             } else {
                 if state.notificationsDenied { notificationRow.padding(.horizontal, 34) }
-                PendingSection(pending: pending, state: state)
+                PendingSection(pending: pending, state: state, fields: state.fileFields(for: pending))
                     .padding(.horizontal, 34)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
@@ -96,7 +96,7 @@ struct FileHistoryView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     SectionTitle(title: "지난 기록", count: total).padding(.horizontal, 34)
                     HistoryRow.header.padding(.horizontal, 34)                     // 열 머리는 고정
-                    HistoryList(rows: rows, page: state.fileHistoryPage, state: state)
+                    HistoryList(rows: rows, page: state.fileHistoryPage, state: state, fields: state.fileFields(for: rows))
                     if pages > 1 {
                         PageNumbers(current: state.fileHistoryPage, pages: pages) { state.showFileHistoryPage($0) }
                             .frame(maxWidth: .infinity).padding(.vertical, 12)
@@ -130,6 +130,7 @@ private struct SectionTitle: View {
 private struct PendingSection: View {
     let pending: [FileSuggestion]
     let state: AppState
+    let fields: [Int64: FileField]
     @State private var hovered: FileSuggestion.ID?          // 커서를 댄 제안: 왼쪽 나무에서 그 가지를 진하게
     /// 왼쪽 나무 폭
     static let treeWidth: CGFloat = 400
@@ -143,6 +144,7 @@ private struct PendingSection: View {
                 List {                                              // 카드 목록: AppKit 표가 스크롤을 맡는다 (지난 기록과 같은 까닭, 10/29 측정)
                     ForEach(pending) { suggestion in
                         PendingCard(suggestion: suggestion, source: FilesView.source(suggestion), folder: FilesView.short(suggestion.suggestedFolder),
+                                    field: suggestion.id.flatMap { fields[$0] },
                                     accept: { state.acceptSuggestion(suggestion) }, choose: { state.chooseFolderAndMove(suggestion) },
                                     ignore: { state.ignoreSuggestion(suggestion) }, reveal: { state.revealSuggestionFile(suggestion) })
                             .equatable()
@@ -253,6 +255,7 @@ struct HistoryList: View {
     /// 쪽이 바뀌면 맨 위로
     let page: Int
     let state: AppState
+    let fields: [Int64: FileField]
 
     static let rowHeight: CGFloat = 46
 
@@ -260,7 +263,7 @@ struct HistoryList: View {
         ScrollViewReader { proxy in
             List {
                 ForEach(rows) { suggestion in
-                    HistoryRow(suggestion: suggestion, undo: { state.undoSuggestion(suggestion) })
+                    HistoryRow(suggestion: suggestion, field: suggestion.id.flatMap { fields[$0] }, undo: { state.undoSuggestion(suggestion) })
                         .hoverHighlight(cornerRadius: 6)
                         .listRowInsets(EdgeInsets(top: 0, leading: 24, bottom: 0, trailing: 24))   // List 가 양옆에 10 을 더 띄운다: 위 열 머리(34)와 칸을 맞춘다
                         .listRowSeparator(.hidden)
@@ -279,18 +282,26 @@ struct HistoryList: View {
 /// 지난 기록 한 줄: 파일 · 폴더 · 처리 결과 · 시간 · 되돌리기
 private struct HistoryRow: View {
     let suggestion: FileSuggestion
+    let field: FileField?
     let undo: () -> Void
 
     static var header: some View {
-        cells(Text("파일"), Text("폴더"), Text("처리 결과"), Text("시간"), AnyView(EmptyView()), header: true)
+        cells(Text("파일"), AnyView(Text("분야")), Text("폴더"), Text("처리 결과"), Text("시간"), AnyView(EmptyView()), header: true)
     }
 
     var body: some View {
         let folder = FilesView.short(suggestion.status == "moved"
             ? (suggestion.movedTo.map { ($0 as NSString).deletingLastPathComponent } ?? suggestion.suggestedFolder) : suggestion.suggestedFolder)
-        return Self.cells(Text(suggestion.fileName), Text(folder), Text(Self.label(suggestion.status)),
+        return Self.cells(Text(suggestion.fileName), AnyView(fieldCell), Text(folder), Text(Self.label(suggestion.status)),
                           Text(FilesView.time.string(from: Date(timeIntervalSince1970: suggestion.ts))),
                           AnyView(undoButton), header: false, failed: suggestion.status == "rejected")
+    }
+
+    private var fieldCell: some View {
+        HStack(spacing: 5) {
+            if let field { Circle().fill(field.color).frame(width: 6, height: 6) }
+            Text(field?.name ?? "분야 없음").lineLimit(1)
+        }
     }
 
     @ViewBuilder private var undoButton: some View {
@@ -302,10 +313,11 @@ private struct HistoryRow: View {
         }
     }
 
-    private static func cells(_ file: Text, _ folder: Text, _ result: Text, _ time: Text, _ action: AnyView,
+    private static func cells(_ file: Text, _ field: AnyView, _ folder: Text, _ result: Text, _ time: Text, _ action: AnyView,
                               header: Bool, failed: Bool = false) -> some View {
         HStack(spacing: 0) {
             file.lineLimit(1).truncationMode(.middle).padding(.leading, 14).frame(maxWidth: .infinity, alignment: .leading)
+            field.padding(.leading, 12).frame(width: 130, alignment: .leading)
             folder.lineLimit(1).truncationMode(.middle).padding(.leading, 12).frame(width: 256, alignment: .leading)
             result.foregroundStyle(failed ? Color(hex: 0x934C3B) : (header ? Brand.gray : Brand.tabText)).padding(.leading, 12).frame(width: 139, alignment: .leading)
             time.foregroundStyle(Brand.gray).padding(.leading, 12).frame(width: 190, alignment: .leading)
@@ -409,13 +421,14 @@ private struct PendingCard: View, Equatable {
     let suggestion: FileSuggestion
     let source: String
     let folder: String
+    let field: FileField?
     let accept: () -> Void
     let choose: () -> Void
     let ignore: () -> Void
     let reveal: () -> Void
 
     static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.suggestion == rhs.suggestion && lhs.source == rhs.source && lhs.folder == rhs.folder
+        lhs.suggestion == rhs.suggestion && lhs.source == rhs.source && lhs.folder == rhs.folder && lhs.field == rhs.field
     }
 
     var body: some View {
@@ -436,6 +449,15 @@ private struct PendingCard: View, Equatable {
                     Image(systemName: "folder").font(.system(size: 11)).foregroundStyle(Brand.ink)
                     Text(folder).font(Brand.suit(11, .medium)).foregroundStyle(Brand.ink)
                         .lineLimit(1).truncationMode(.middle).textSelection(.enabled)
+                    Spacer(minLength: 8)
+                    if let field {
+                        HStack(spacing: 5) {
+                            Circle().fill(field.color).frame(width: 6, height: 6)
+                            Text(field.name).font(Brand.suit(11)).foregroundStyle(Brand.gray)
+                        }
+                    } else {
+                        Text("분야 없음").font(Brand.suit(11)).foregroundStyle(Brand.gray)
+                    }
                 }
                 .padding(.top, 14)
                 HStack(spacing: 4) {

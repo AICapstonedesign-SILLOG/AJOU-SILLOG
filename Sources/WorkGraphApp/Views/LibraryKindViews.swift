@@ -359,144 +359,211 @@ struct LibraryNoteList: View {
     }
 }
 
-/// LB-25: 보관함 홈. 전체 개수, 종류 비율, 최근 7일 추가, 받아쓰기 상태, 최근 추가 5건
+/// LB-25, LB-26: 보관함 홈. 분야별 누적 면적 차트와 범례, 종류별 개수, 6개월 잔디 달력, 최근 추가 5건
 struct LibraryHome: View {
     let items: [ChatLibraryItem]
     let recordings: [Recording]
+    var tasks: [TaskSummary] = []
+    /// 보관 자료 id -> 연결 대화의 초점. 없으면 "분야 없음"
+    var itemFocuses: [String: [ChatFocus]] = [:]
     let actions: LibraryActions
+    @State private var period = Period.all
+
+    enum Period: String, CaseIterable {
+        case week = "7일", month = "30일", year = "1년", all = "전체"
+        var days: Int? { switch self { case .week: 7; case .month: 30; case .year: 365; case .all: nil } }
+    }
+
+    private struct Row { let kind: String; let date: Double; let field: String }
 
     private var entries: [LibraryEntry] {
         (items.map { LibraryEntry.item($0) } + recordings.map { LibraryEntry.recording($0) }).sorted { $0.date > $1.date }
     }
 
+    /// 항목 하나의 분야: 녹음은 업무의 분야, 보관 자료는 연결 대화의 첫 초점 (업무면 그 업무의 분야, 분야면 그 이름). 못 찾으면 "분야 없음"
+    private func rows(_ all: [LibraryEntry]) -> [Row] {
+        let none = TasksView.noField
+        let byID = Dictionary(tasks.map { ($0.id, $0.field) }, uniquingKeysWith: { a, _ in a })
+        let byKey = Dictionary(tasks.map { ($0.key, $0.field) }, uniquingKeysWith: { a, _ in a })
+        return all.map { entry in
+            var field = none
+            switch entry {
+            case .recording(let r): if let id = r.taskId, let f = byID[id] ?? nil { field = f }
+            case .item(let item):
+                if let focus = itemFocuses[item.id]?.first {
+                    if focus.kind == .theme { field = focus.title } else if let f = byKey[focus.key] ?? nil { field = f }
+                }
+            }
+            return Row(kind: entry.kind, date: entry.date, field: field)
+        }
+    }
+
+    /// 업무가 있는 분야는 0개여도 범례에 나온다. "분야 없음" 은 항목이 있을 때만
+    private func fieldList(_ rows: [Row]) -> [TasksView.FieldStat] {
+        var counts: [String: Int] = [:]
+        for task in tasks { counts[task.field ?? TasksView.noField, default: 0] += 0 }
+        for row in rows { counts[row.field, default: 0] += 1 }
+        return TasksView.fieldStats(counts: counts.filter { $0.key != TasksView.noField || $0.value > 0 })
+    }
+
     var body: some View {
         let all = entries
-        let counts = Dictionary(grouping: all, by: \.kind).mapValues(\.count)
+        let rows = rows(all)
+        let fields = fieldList(rows)
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .center, spacing: 36) {
-                Donut(parts: LibraryLook.order.map { (LibraryLook.color($0), Double(counts[$0] ?? 0)) }, size: 132, line: 16) {
-                    VStack(spacing: 2) {
-                        Text("보관함 전체").font(Brand.suit(10)).foregroundStyle(Brand.gray)
-                        Text("\(all.count)개").font(Brand.suit(22, .medium)).foregroundStyle(Brand.ink)
-                    }
-                }
-                VStack(alignment: .leading, spacing: 18) {
-                    if let last = all.first {
-                        Text("마지막으로 쌓인 때  \(LibraryLook.when(last.date))").font(Brand.suit(11)).foregroundStyle(Brand.gray)
-                    }
-                    HStack(alignment: .top, spacing: 0) {
-                        ForEach(LibraryLook.order, id: \.self) { kind in legend(kind, counts[kind] ?? 0).frame(width: 150, alignment: .leading) }
-                    }
-                }
-            }
-            Rectangle().fill(Brand.line).frame(height: 1).padding(.top, 24)
+            banner(all, rows, fields)
+            legend(fields, total: all.count).padding(.top, 5)
+            Rectangle().fill(Brand.line).frame(height: 1).padding(.top, 10)
             HStack(alignment: .top, spacing: 50) {
                 VStack(alignment: .leading, spacing: 0) {
-                    chart(all)
-                    if !recordings.isEmpty { status.padding(.top, 36) }
+                    kindCounts(all)
+                    calendar(all).padding(.top, 23)
                 }.frame(maxWidth: .infinity, alignment: .leading)
                 recent(all).frame(maxWidth: .infinity, alignment: .leading)
-            }.padding(.top, 24)
+            }.padding(.top, 19)
         }
     }
 
-    private func legend(_ kind: String, _ count: Int) -> some View {
-        let mine = entries.filter { $0.kind == kind }
-        return VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 6) {
-                Circle().fill(LibraryLook.color(kind)).frame(width: 8, height: 8)
-                Text(LibraryLook.name(kind)).font(Brand.suit(11)).foregroundStyle(Brand.gray)
+    // MARK: 위 카드와 차트
+
+    private func banner(_ all: [LibraryEntry], _ rows: [Row], _ fields: [TasksView.FieldStat]) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color(hex: 0xF7F5F2))
+                AreaChart(rows: rows.map { ($0.date, $0.field) }, fields: fields, period: period.days).clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("보관함 전체").font(Brand.suit(10)).foregroundStyle(Brand.gray)
+                    Text("\(all.count.formatted())개").font(Brand.suit(22, .medium)).foregroundStyle(Brand.ink).padding(.top, 2)
+                    if let last = all.first {
+                        Text("마지막으로 쌓인 때  \(LibraryLook.when(last.date))").font(Brand.suit(11)).foregroundStyle(Brand.gray).padding(.top, 4)
+                    }
+                }.padding(.leading, 18).padding(.top, 14).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                HStack(spacing: 2) {
+                    ForEach(Period.allCases, id: \.self) { p in
+                        Button { period = p } label: {
+                            Text(p.rawValue).font(Brand.suit(11)).foregroundStyle(period == p ? Color(hex: 0x3D2F27) : Brand.gray)
+                                .padding(.horizontal, 11).frame(height: 21)
+                                .background(Capsule().fill(period == p ? Color(hex: 0xEAE3DC) : .clear))
+                                .overlay(Capsule().stroke(period == p ? Color(hex: 0xCCBEB3) : .clear, lineWidth: 1))
+                        }.buttonStyle(.plain)
+                    }
+                }.padding(.trailing, 14).padding(.top, 12).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+            }.frame(height: 150)
+            AreaAxis(dates: rows.map(\.date), period: period.days).padding(.top, 3)
+        }
+    }
+
+    /// 색 점, 분야 이름, 개수, 퍼센트. 한 줄에 6개씩, 더 많으면 다음 줄
+    private func legend(_ fields: [TasksView.FieldStat], total: Int) -> some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 0, alignment: .topLeading), count: 6), alignment: .leading, spacing: 12) {
+            ForEach(fields) { f in
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Circle().fill(f.color).frame(width: 8, height: 8)
+                        Text(f.name).font(Brand.suit(11)).foregroundStyle(Brand.tabText).lineLimit(1)
+                    }
+                    HStack(alignment: .firstTextBaseline, spacing: 3) {
+                        Text(f.count.formatted()).font(Brand.suit(18, .medium)).foregroundStyle(Brand.ink)
+                        Text("개").font(Brand.suit(11)).foregroundStyle(Brand.gray)
+                        Text("\(total > 0 ? Int((Double(f.count) / Double(total) * 100).rounded()) : 0)%").font(Brand.suit(10)).foregroundStyle(Brand.gray).padding(.leading, 4)
+                    }
+                }.frame(maxWidth: .infinity, alignment: .leading)
             }
-            HStack(alignment: .firstTextBaseline, spacing: 3) {
-                Text("\(count)").font(Brand.suit(22, .medium)).foregroundStyle(Brand.ink)
-                Text("개").font(Brand.suit(11)).foregroundStyle(Brand.gray)
-            }.padding(.top, 8)
-            Text(sub(kind, mine)).font(Brand.suit(10)).foregroundStyle(Brand.gray).padding(.top, 8)
         }
     }
 
-    private func sub(_ kind: String, _ mine: [LibraryEntry]) -> String {
-        guard let last = mine.first else { return "아직 없어요" }
-        switch kind {
-        case "recording": return "총 길이 \(RecordingText.duration(recordings.reduce(0) { $0 + $1.duration }))"
-        case "generated":
-            var formats: [String: Int] = [:]
-            for item in items where item.kind == kind { formats[LibraryLook.ext(item).uppercased(), default: 0] += 1 }
-            return "형식 " + formats.sorted { $0.value == $1.value ? $0.key < $1.key : $0.value > $1.value }.map { "\($0.key) \($0.value)개" }.joined(separator: ", ")
-        default: return "마지막 \(LibraryLook.day(last.date))"
-        }
-    }
+    // MARK: 아래 왼쪽
 
-    /// 오늘까지 7일, 날마다 종류별로 쌓은 막대
-    private func chart(_ all: [LibraryEntry]) -> some View {
-        let calendar = Calendar.current
-        let today = calendar.startOfDay(for: Date())
-        let days = (0..<7).map { calendar.date(byAdding: .day, value: $0 - 6, to: today)! }
-        let perDay: [[String: Int]] = days.map { day in
-            var counts: [String: Int] = [:]
-            for entry in all where calendar.isDate(Date(timeIntervalSince1970: entry.date), inSameDayAs: day) { counts[entry.kind, default: 0] += 1 }
-            return counts
-        }
-        let peak = max(perDay.map { $0.values.reduce(0, +) }.max() ?? 0, 1)
-        let unit = min(17.8, 90 / CGFloat(peak))
-        let label = DateFormatter()
-        label.dateFormat = "M/d"
-        return VStack(alignment: .leading, spacing: 0) {
-            Text("최근 7일 추가").font(Brand.suit(12, .medium)).foregroundStyle(Brand.tabText)
-            HStack(alignment: .bottom, spacing: 0) {
-                ForEach(days.indices, id: \.self) { i in
-                    let total = perDay[i].values.reduce(0, +)
-                    VStack(spacing: 4) {
-                        if total > 0 { Text("\(total)").font(Brand.suit(10)).foregroundStyle(Brand.gray) }
-                        VStack(spacing: 0) {
-                            ForEach(LibraryLook.order.reversed(), id: \.self) { kind in
-                                if let n = perDay[i][kind], n > 0 {
-                                    RoundedRectangle(cornerRadius: 2).fill(LibraryLook.color(kind)).frame(width: 28, height: unit * CGFloat(n))
-                                }
-                            }
-                        }
-                    }.frame(width: 53)
-                }
-            }.frame(height: 116, alignment: .bottom).padding(.top, 14)
-            Rectangle().fill(Brand.line).frame(height: 1).frame(width: 371)
-            HStack(spacing: 0) {
-                ForEach(days.indices, id: \.self) { i in
-                    Text(label.string(from: days[i])).font(Brand.suit(10)).foregroundStyle(Brand.gray).frame(width: 53)
-                }
-            }.padding(.top, 8)
-        }
-    }
-
-    /// 녹음 받아쓰기 상태 막대와 범례
-    private var status: some View {
+    private func kindCounts(_ all: [LibraryEntry]) -> some View {
+        let counts = Dictionary(grouping: all, by: \.kind).mapValues(\.count)
         let ready = recordings.filter { $0.status == .ready && $0.hasTranscript }.count
         let empty = recordings.filter { $0.status == .ready && !$0.hasTranscript }.count
         let failed = recordings.filter { $0.status == .failed }.count
-        let parts: [(String, Int, Color)] = [("완료", ready, LibraryLook.recording), ("내용 없음", empty, LibraryLook.noContent), ("실패", failed, LibraryLook.failed)]
         return VStack(alignment: .leading, spacing: 0) {
-            Text("녹음 받아쓰기 상태").font(Brand.suit(12, .medium)).foregroundStyle(Brand.tabText)
-            HStack(spacing: 24) {
-                Donut(parts: parts.map { ($0.2, Double($0.1)) }, size: 84, line: 10) {
-                    Text("\(recordings.count)").font(Brand.suit(16, .medium)).foregroundStyle(Brand.ink)
-                }
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(parts.indices, id: \.self) { i in
-                        HStack(spacing: 6) {
-                            Circle().fill(parts[i].2).frame(width: 8, height: 8)
-                            Text("\(parts[i].0) \(parts[i].1)").font(Brand.suit(11)).foregroundStyle(Brand.gray)
+            Text("종류별 개수").font(Brand.suit(12, .medium)).foregroundStyle(Brand.tabText)
+            HStack(alignment: .top, spacing: 0) {
+                ForEach(LibraryLook.order, id: \.self) { kind in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(LibraryLook.name(kind)).font(Brand.suit(11)).foregroundStyle(Brand.gray)
+                        HStack(alignment: .firstTextBaseline, spacing: 1) {
+                            Text((counts[kind] ?? 0).formatted()).font(Brand.suit(16, .medium)).foregroundStyle(Brand.ink)
+                            Text("개").font(Brand.suit(11)).foregroundStyle(Brand.gray)
                         }
-                    }
+                    }.frame(width: 92, alignment: .leading)
                 }
-            }.padding(.top, 14)
+            }.padding(.top, 8)
+            if !recordings.isEmpty {
+                Text("녹음 총 길이 \(RecordingText.duration(recordings.reduce(0) { $0 + $1.duration })), 받아쓰기 완료 \(ready), 내용 없음 \(empty), 실패 \(failed)")
+                    .font(Brand.suit(10)).foregroundStyle(Brand.gray).padding(.top, 12)
+            }
         }
     }
 
+    /// 최근 6개월 잔디: 한 줄이 월~일, 한 칸이 하루. 오늘 칸에 테두리
+    private func calendar(_ all: [LibraryEntry]) -> some View {
+        let cal = Calendar(identifier: .gregorian)
+        var mondayFirst = cal; mondayFirst.firstWeekday = 2
+        let today = cal.startOfDay(for: Date())
+        let from = cal.date(byAdding: .month, value: -6, to: today)!
+        let start = mondayFirst.dateInterval(of: .weekOfYear, for: from)!.start
+        let weeks = (cal.dateComponents([.day], from: start, to: today).day! / 7) + 1
+        var perDay: [Date: Int] = [:]
+        for entry in all { perDay[cal.startOfDay(for: Date(timeIntervalSince1970: entry.date)), default: 0] += 1 }
+        let peak = max(perDay.values.max() ?? 0, 1)
+        func day(_ week: Int, _ row: Int) -> Date { cal.date(byAdding: .day, value: week * 7 + row, to: start)! }
+        func shade(_ n: Int) -> Color {
+            if n == 0 { return Color(hex: 0xF2EEEA) }
+            let r = Double(n) / Double(peak)
+            return r <= 0.25 ? LibraryLook.note : r <= 0.5 ? LibraryLook.generated : r <= 0.75 ? LibraryLook.upload : LibraryLook.recording
+        }
+        let months: [(Int, String)] = (1..<weeks).compactMap { w in
+            let d = day(w, 0)
+            return cal.component(.day, from: d) <= 7 && cal.component(.day, from: day(w - 1, 0)) > 7 ? (w, "\(cal.component(.month, from: d))월") : nil
+        }
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("최근 6개월 추가").font(Brand.suit(12, .medium)).foregroundStyle(Brand.tabText)
+                Spacer()
+                HStack(spacing: 2) {
+                    Text("적음").font(Brand.suit(10)).foregroundStyle(Brand.gray).padding(.trailing, 4)
+                    ForEach([Color(hex: 0xF2EEEA), LibraryLook.note, LibraryLook.generated, LibraryLook.upload, LibraryLook.recording].indices, id: \.self) { i in
+                        RoundedRectangle(cornerRadius: 2).fill([Color(hex: 0xF2EEEA), LibraryLook.note, LibraryLook.generated, LibraryLook.upload, LibraryLook.recording][i]).frame(width: 9, height: 9)
+                    }
+                    Text("많음").font(Brand.suit(10)).foregroundStyle(Brand.gray).padding(.leading, 4)
+                }
+            }
+            ZStack(alignment: .topLeading) {
+                ForEach(months, id: \.0) { m in
+                    Text(m.1).font(Brand.suit(10)).foregroundStyle(Brand.gray).fixedSize().offset(x: 19 + CGFloat(m.0) * 13, y: 0)
+                }
+                ForEach([0, 2, 4], id: \.self) { row in
+                    Text(["월", "", "수", "", "금"][row]).font(Brand.suit(9)).foregroundStyle(Brand.gray).offset(x: 0, y: 14 + CGFloat(row) * 13)
+                }
+                HStack(alignment: .top, spacing: 2) {
+                    ForEach(0..<weeks, id: \.self) { w in
+                        VStack(spacing: 2) {
+                            ForEach(0..<7, id: \.self) { r in
+                                let d = day(w, r)
+                                if d <= today {
+                                    RoundedRectangle(cornerRadius: 2).fill(shade(perDay[d] ?? 0)).frame(width: 11, height: 11)
+                                        .overlay(RoundedRectangle(cornerRadius: 2).stroke(d == today ? LibraryLook.recording : .clear, lineWidth: 1))
+                                } else { Color.clear.frame(width: 11, height: 11) }
+                            }
+                        }
+                    }
+                }.offset(x: 19, y: 14)
+            }.frame(height: 14 + 89, alignment: .topLeading).padding(.top, 8)
+        }
+    }
+
+    // MARK: 아래 오른쪽
+
     private func recent(_ all: [LibraryEntry]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("최근 추가").font(Brand.suit(12, .medium)).foregroundStyle(Brand.tabText).padding(.bottom, 10)
+            Text("최근 추가").font(Brand.suit(12, .medium)).foregroundStyle(Brand.tabText).padding(.bottom, 11)
             ForEach(Array(all.prefix(5))) { entry in
-                KindRow(entry: entry, actions: actions, spacing: 10) {
-                    VStack(alignment: .leading, spacing: 5) {
+                KindRow(entry: entry, actions: actions, spacing: 7.5) {   // 행 피치 48pt (Figma)
+                    VStack(alignment: .leading, spacing: 4.5) {
                         Text(entry.title).font(Brand.suit(12, .medium)).foregroundStyle(Brand.tabText).lineLimit(1)
                         Text(subtitle(entry)).font(Brand.suit(10)).foregroundStyle(Brand.gray).lineLimit(1)
                     }
@@ -512,30 +579,99 @@ struct LibraryHome: View {
     }
 }
 
+/// 차트 시간 범위: 기간 단추 값(일)이 없으면 가장 오래된 항목부터 지금까지
+private func chartRange(_ dates: [Double], _ period: Int?) -> (Double, Double) {
+    let end = Date().timeIntervalSince1970
+    let start = period.map { end - Double($0) * 86_400 } ?? min(dates.min() ?? end, end - 86_400)
+    return (start, end)
+}
 
-/// 도넛 차트: 조각 사이에 작은 틈을 두고, 가운데에 내용을 얹는다. 값이 모두 0이면 옅은 고리만 그린다.
-struct Donut<Center: View>: View {
-    let parts: [(Color, Double)]
-    let size: CGFloat
-    let line: CGFloat
-    @ViewBuilder var center: Center
+/// 분야별로 쌓인 누적 면적. 아래부터 분야 순서대로 쌓고, 점 사이는 가로로 눕는 곡선이라 계단이 부드럽다
+private struct AreaChart: View {
+    let rows: [(Double, String)]
+    let fields: [TasksView.FieldStat]
+    let period: Int?
+    private let steps = 60
 
     var body: some View {
-        let total = parts.reduce(0) { $0 + $1.1 }
-        let used = parts.filter { $0.1 > 0 }
-        let gap = used.count > 1 ? 0.012 : 0
-        var start = 0.0
-        let arcs: [(Color, Double, Double)] = used.map { part in
-            let from = start; start += part.1 / max(total, 1)
-            return (part.0, from + gap / 2, start - gap / 2)
-        }
-        return ZStack {
-            Circle().stroke(Brand.line, lineWidth: line)
-            ForEach(arcs.indices, id: \.self) { i in
-                Circle().trim(from: arcs[i].1, to: arcs[i].2).stroke(arcs[i].0, style: StrokeStyle(lineWidth: line, lineCap: .butt))
-                    .rotationEffect(.degrees(-90))
+        GeometryReader { geo in
+            let (start, end) = chartRange(rows.map(\.0), period)
+            let names = fields.map(\.name)
+            // cumulative[k][i]: 분야 0...k 를 합친, i번째 시각까지의 누적 개수
+            let cumulative: [[Double]] = names.indices.map { k in
+                (0...steps).map { i in
+                    let t = start + (end - start) * Double(i) / Double(steps)
+                    return Double(rows.filter { $0.0 <= t && (names.firstIndex(of: $0.1) ?? names.count) <= k }.count)
+                }
             }
-            center
-        }.padding(line / 2).frame(width: size, height: size)
+            let peak = max(cumulative.last?.last ?? 0, 1)
+            let top: CGFloat = 46, h = geo.size.height - top
+            ZStack(alignment: .topLeading) {
+                ForEach(names.indices.reversed(), id: \.self) { k in
+                    let color = fields[k].color
+                    area(cumulative[k], peak: peak, top: top, h: h, width: geo.size.width)
+                        .fill(LinearGradient(colors: [color.opacity(0.78), color], startPoint: .top, endPoint: .bottom))
+                }
+            }
+        }
+    }
+
+    private func area(_ values: [Double], peak: Double, top: CGFloat, h: CGFloat, width: CGFloat) -> Path {
+        let dx = width / CGFloat(values.count - 1)
+        let pts = values.enumerated().map { CGPoint(x: CGFloat($0.offset) * dx, y: top + h * (1 - CGFloat($0.element / peak))) }
+        var path = Path()
+        path.move(to: CGPoint(x: 0, y: top + h))
+        path.addLine(to: pts[0])
+        for i in 1..<pts.count {
+            let mid = (pts[i - 1].x + pts[i].x) / 2
+            path.addCurve(to: pts[i], control1: CGPoint(x: mid, y: pts[i - 1].y), control2: CGPoint(x: mid, y: pts[i].y))
+        }
+        path.addLine(to: CGPoint(x: width, y: top + h))
+        path.closeSubpath()
+        return path
+    }
+}
+
+/// 차트 아래 날짜 축: 45일 이하는 날짜 5개, 그보다 길면 두 달마다 월 이름과 오른쪽 끝에 오늘
+private struct AreaAxis: View {
+    let dates: [Double]
+    let period: Int?
+
+    var body: some View {
+        GeometryReader { geo in
+            let (start, end) = chartRange(dates, period)
+            let cal = Calendar.current
+            let startDate = Date(timeIntervalSince1970: start), endDate = Date(timeIntervalSince1970: end)
+            let labels: [(Double, String, UnitPoint)] = {
+                let f = DateFormatter(); f.dateFormat = "M/d"
+                if end - start <= 45 * 86_400 {
+                    return (0...4).map { i in
+                        let t = start + (end - start) * Double(i) / 4
+                        return (Double(i) / 4, f.string(from: Date(timeIntervalSince1970: t)), i == 0 ? .leading : i == 4 ? .trailing : .center)
+                    }
+                }
+                var list: [(Double, String, UnitPoint)] = [(0, "\(cal.component(.month, from: startDate))월", .leading)]
+                var d = cal.date(from: cal.dateComponents([.year, .month], from: startDate))!
+                while true {
+                    d = cal.date(byAdding: .month, value: 2, to: d)!
+                    let frac = (d.timeIntervalSince1970 - start) / (end - start)
+                    if frac >= 0.9 { break }
+                    list.append((frac, "\(cal.component(.month, from: d))월", .center))
+                }
+                list.append((1, "\(cal.component(.month, from: endDate))월 \(cal.component(.day, from: endDate))일", .trailing))
+                return list
+            }()
+            ZStack(alignment: .topLeading) {
+                ForEach(labels.indices, id: \.self) { i in
+                    let l = labels[i]
+                    // 폭 0 자리를 날짜 위치에 두고 글씨를 왼쪽 맞춤, 가운데, 오른쪽 맞춤으로 걸친다
+                    Color.clear.frame(width: 0, height: 14)
+                        .overlay(alignment: l.2 == .leading ? .leading : l.2 == .trailing ? .trailing : .center) {
+                            Text(l.1).font(Brand.suit(10)).foregroundStyle(Brand.gray).fixedSize()
+                        }
+                        .offset(x: geo.size.width * l.0)
+                }
+            }
+        }.frame(height: 14)
     }
 }

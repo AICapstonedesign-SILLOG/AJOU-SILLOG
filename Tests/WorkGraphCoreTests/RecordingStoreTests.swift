@@ -85,10 +85,10 @@ final class RecordingStoreTests: XCTestCase {
     }
 
     func testTextPathFollowsTheMovedFile() throws {
-        let recording = try store.insert(Recording(startedAt: 1, audioPath: "/a", textPath: "/Docs/Sillog 녹음/회의.md", transcript: "가", status: .ready))
-        XCTAssertTrue(try store.moveText(from: "/Docs/Sillog 녹음/회의.md", to: "/Docs/학교/회의.md"))
+        let recording = try store.insert(Recording(startedAt: 1, audioPath: "/a", textPath: "/Docs/SILLOG 녹음/회의.md", transcript: "가", status: .ready))
+        XCTAssertTrue(try store.moveText(from: "/Docs/SILLOG 녹음/회의.md", to: "/Docs/학교/회의.md"))
         XCTAssertEqual(try store.find(textPath: "/Docs/학교/회의.md")?.id, recording.id)
-        XCTAssertNil(try store.find(textPath: "/Docs/Sillog 녹음/회의.md"))
+        XCTAssertNil(try store.find(textPath: "/Docs/SILLOG 녹음/회의.md"))
         XCTAssertFalse(try store.moveText(from: "/없는/경로.md", to: "/x.md"))
     }
 

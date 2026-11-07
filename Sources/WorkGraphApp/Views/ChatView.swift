@@ -2,6 +2,7 @@ import SwiftUI
 import WorkGraphCore
 
 struct ChatView: View {
+    @EnvironmentObject private var state: AppState
     @ObservedObject var chat: ChatState
     @ObservedObject var library: LibraryState
     var modelName = ""
@@ -15,6 +16,10 @@ struct ChatView: View {
     @State private var pendingAutomation: ConversationMessage?
     @State private var showSchedules = false
     @State private var showSearch = false
+    /// 검색 창을 창 정중앙에서 끌어 옮긴 거리. 앱을 다시 켜도 기억한다.
+    @AppStorage("chatSearchOffsetX") private var searchOffsetX = 0.0
+    @AppStorage("chatSearchOffsetY") private var searchOffsetY = 0.0
+    @GestureState private var searchDrag = CGSize.zero
     @State private var previewItem: ChatLibraryItem?
     @State private var sidebarVisible = true
     @State private var editingConversation: ChatConversation?
@@ -46,16 +51,30 @@ struct ChatView: View {
         .overlay { if showSearch { searchOverlay } }
     }
 
-    /// 창을 어둡게 하고 560 폭 검색 창을 위에서 58 내려 가운데에 띄운다(Figma CH-41, 창 기준 y 110 − 머리 52).
+    /// 창을 어둡게 하고 560 폭 검색 창을 창 정중앙에 띄운다(Figma CH-41). 끌면 그 자리를 기억하고, 창이 작아지면 창 안으로 당긴다.
+    /// 글자를 쳐서 창 높이가 변해도 움직이지 않게 위쪽 끝을 고정한다.
     private var searchOverlay: some View {
-        ZStack(alignment: .top) {
-            Color.black.opacity(0.08).contentShape(Rectangle()).onTapGesture { showSearch = false }
-            ChatSearchPanel(chat: chat,
-                            onOpen: { item in chat.select(item); pane = .chat; showSearch = false },
-                            onClose: { showSearch = false })
-                .frame(width: 560).padding(.top, 58)
-                .offset(x: -NavRail.width / 2)     // 덮개는 아이콘 줄 오른쪽 본문 기준이라, 아이콘 줄 폭 절반만큼 당겨 창 가운데에 둔다
-            Button("") { showSearch = false }.keyboardShortcut(.cancelAction).opacity(0).frame(width: 0, height: 0)
+        GeometryReader { geo in
+            let panelH: CGFloat = 342, panelW: CGFloat = 560, headH: CGFloat = 52
+            let home = CGPoint(x: (geo.size.width - NavRail.width - panelW) / 2, y: (geo.size.height - headH - panelH) / 2)
+            let maxX = max(0, geo.size.width - panelW), maxY = max(0, geo.size.height - 48)
+            let x = min(max(0, home.x + searchOffsetX + searchDrag.width), maxX)
+            let y = min(max(0, home.y + searchOffsetY + searchDrag.height), maxY)
+            ZStack(alignment: .topLeading) {
+                Color.black.opacity(0.08).contentShape(Rectangle()).onTapGesture { showSearch = false }
+                ChatSearchPanel(chat: chat,
+                                onOpen: { item in chat.select(item); pane = .chat; showSearch = false },
+                                onClose: { showSearch = false })
+                    .gesture(DragGesture(minimumDistance: 4, coordinateSpace: .global)
+                        .updating($searchDrag) { value, drag, _ in drag = value.translation }
+                        .onEnded { value in     // 창 밖으로 나간 만큼은 저장하지 않는다
+                            searchOffsetX = min(max(0, home.x + searchOffsetX + value.translation.width), maxX) - home.x
+                            searchOffsetY = min(max(0, home.y + searchOffsetY + value.translation.height), maxY) - home.y
+                        })
+                    .frame(width: panelW)
+                    .offset(x: x, y: y)
+                Button("") { showSearch = false }.keyboardShortcut(.cancelAction).opacity(0).frame(width: 0, height: 0)
+            }
         }
     }
 
@@ -89,7 +108,7 @@ struct ChatView: View {
             ["https", "http"].contains(url.scheme ?? "") ? .systemAction : .discarded
         })
         .onChange(of: chat.current.scope) { old, new in if old != new { chat.saveScope() } }
-        .onChange(of: chat.current.skillID) { old, new in if old != new { chat.saveScope() } }
+        .onChange(of: chat.current.skillIDs) { old, new in if old != new { chat.saveScope() } }
     }
 
     private var mainContent: some View {
@@ -110,22 +129,13 @@ struct ChatView: View {
                                     onConversation: { chat.select($0); pane = .chat },
                                     composer: ChatComposer(chat: chat, library: library, modelName: modelName, openSettings: openSettings,
                                                            pendingRecords: pendingRecords, tidyNow: tidyNow,
-                                                           onOpenPlugins: { pane = .plugins },
+                                                           onOpenPlugins: { state.selectedTab = .plugins },
                                                            onSent: { pane = .chat }, showsNotice: false))
                 } else {
                     Color.white.onAppear { pane = .projects }     // 삭제된 프로젝트
                 }
             case .results:
                 ChatResultsView(library: library)
-            case .plugins:
-                PluginCatalogView(onClose: { pane = .chat }) { id, example in
-                    chat.newConversation()
-                    if id == "github" { chat.current.scope.useGitHub = true }
-                    else { chat.current.scope.plugins.append(id) }
-                    chat.saveScope()
-                    chat.draft = example
-                    pane = .chat
-                }
             }
         }.frame(maxWidth: .infinity, maxHeight: .infinity).background(.white)
     }
@@ -173,7 +183,7 @@ struct ChatView: View {
 
     private var composer: some View {
         ChatComposer(chat: chat, library: library, modelName: modelName, openSettings: openSettings,
-                     pendingRecords: pendingRecords, tidyNow: tidyNow, onOpenPlugins: { pane = .plugins })
+                     pendingRecords: pendingRecords, tidyNow: tidyNow, onOpenPlugins: { state.selectedTab = .plugins })
             .frame(maxWidth: ChatPalette.columnWidth).frame(maxWidth: .infinity)     // 대화 본문과 같은 폭
             .padding(.horizontal, 32).padding(.top, 8).padding(.bottom, 14)
             .padding(.leading, showsQuestionMarks ? 44 : 0)     // 질문 눈금(44)만큼 밀린 대화 본문과 같은 열
@@ -197,8 +207,8 @@ struct ChatView: View {
                         .font(Brand.suit(24)).tracking(-0.48).foregroundStyle(Brand.ink).lineLimit(1)
                 }.frame(maxWidth: .infinity)
                 ChatComposer(chat: chat, library: library, modelName: modelName, openSettings: openSettings,
-                             pendingRecords: pendingRecords, tidyNow: tidyNow, onOpenPlugins: { pane = .plugins },
-                             showsNotice: false)
+                             pendingRecords: pendingRecords, tidyNow: tidyNow, onOpenPlugins: { state.selectedTab = .plugins },
+                             showsNotice: false, showsSkills: true)
                     .padding(.top, 26)
                 if !results.isEmpty {
                     HStack {
@@ -374,9 +384,8 @@ struct ChatView: View {
         } else {
             // 답변: 아바타 없이 본문 그대로
             VStack(alignment: .leading, spacing: 12) {
-                if chat.current.skillID != "general", let skill = chat.skills.first(where: { $0.id == chat.current.skillID }) {
-                    BrandBadge(skill.title)
-                }
+                let picked = chat.skills.filter { chat.current.skillIDs.contains($0.id) }
+                if !picked.isEmpty { HStack(spacing: 4) { ForEach(picked, id: \.id) { BrandBadge($0.title) } } }
                 if message.status == "running" || !message.steps.isEmpty {
                     DisclosureGroup(isExpanded: Binding(
                         get: { message.status == "running" ? !collapsedSteps.contains(message.id) : expandedSteps.contains(message.id) },
@@ -759,15 +768,15 @@ private struct ChatSchedulesView: View {
 }
 
 /// 새 대화 화면 바탕: 발표 표지(Figma 1231:39559)와 같은 옅은 회색 바탕에 그래프 분야 색 번짐 다섯 개.
-/// 값은 표지 채움 그대로(가운데 불투명도, 55% 지점, 가장자리 0). 위치와 반지름은 화면 폭, 높이에 대한 비율
+/// 색과 불투명도는 표지 채움 그대로, 위치는 화면 전체에 고루 퍼지게 옮김. 위치와 반지름은 화면 폭, 높이에 대한 비율
 struct ChatStartBackground: View {
     private struct Glow { let color: Color; let x, y, rx, ry, a0, a55: CGFloat }
     private static let glows: [Glow] = [
-        Glow(color: Color(hex: 0x4A86C5), x: 0.80, y: 0.30, rx: 0.30, ry: 0.55, a0: 0.22, a55: 0.08),   // 파랑
-        Glow(color: Color(hex: 0x8A4E7D), x: 0.97, y: 0.80, rx: 0.22, ry: 0.42, a0: 0.20, a55: 0.07),   // 보라
-        Glow(color: Color(hex: 0x3D9B6B), x: 0.58, y: 1.02, rx: 0.22, ry: 0.38, a0: 0.18, a55: 0.06),   // 초록
-        Glow(color: Color(hex: 0xE9B23F), x: 0.66, y: -0.02, rx: 0.18, ry: 0.30, a0: 0.22, a55: 0.08),  // 노랑
-        Glow(color: Color(hex: 0xE0533D), x: 1.00, y: 0.08, rx: 0.16, ry: 0.30, a0: 0.18, a55: 0.06),   // 빨강
+        Glow(color: Color(hex: 0x4A86C5), x: 0.04, y: 0.42, rx: 0.30, ry: 0.55, a0: 0.22, a55: 0.08),   // 파랑
+        Glow(color: Color(hex: 0x8A4E7D), x: 0.96, y: 0.80, rx: 0.26, ry: 0.46, a0: 0.20, a55: 0.07),   // 보라
+        Glow(color: Color(hex: 0x3D9B6B), x: 0.36, y: 1.02, rx: 0.26, ry: 0.38, a0: 0.18, a55: 0.06),   // 초록
+        Glow(color: Color(hex: 0xE9B23F), x: 0.42, y: -0.02, rx: 0.24, ry: 0.30, a0: 0.22, a55: 0.08),  // 노랑
+        Glow(color: Color(hex: 0xE0533D), x: 0.98, y: 0.10, rx: 0.22, ry: 0.36, a0: 0.18, a55: 0.06),   // 빨강
     ]
 
     var body: some View {

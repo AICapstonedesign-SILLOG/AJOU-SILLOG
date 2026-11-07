@@ -13,6 +13,7 @@ struct NavRail: View {
         case .chat: RailIcon.chat
         case .records: RailIcon.records
         case .settings: RailIcon.settings
+        case .plugins: RailIcon.plugins
         }
     }
 
@@ -43,7 +44,7 @@ struct NavRail: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            ForEach(MainWindow.Tab.allCases) { railTab($0) }   // 설정도 다른 탭과 한 줄에 (맨 아래로 내리지 않는다)
+            ForEach(MainWindow.Tab.allCases.filter { $0 != .plugins || state.selectedTab == .chat || state.selectedTab == .plugins }) { railTab($0) }   // 설정도 다른 탭과 한 줄에. 플러그인은 채팅에서만 보인다
             Spacer(minLength: 0)
             AccountDot().padding(.top, 8)
         }
@@ -402,7 +403,7 @@ private struct HideWindowTitle: ViewModifier {
 
 struct MainWindow: View {
     enum Tab: String, CaseIterable, Identifiable {
-        case graph = "그래프", chat = "채팅", records = "기록 자료", settings = "설정"   // 업무는 그래프 옆 패널(TasksPanel), 파일·보관함·활동 로그는 기록 자료 안 구역
+        case graph = "그래프", chat = "채팅", records = "기록 자료", settings = "설정", plugins = "플러그인"   // 업무는 그래프 옆 패널(TasksPanel), 파일·보관함·활동 로그는 기록 자료 안 구역
         var id: String { rawValue }
     }
 
@@ -412,6 +413,7 @@ struct MainWindow: View {
         switch ProcessInfo.processInfo.environment["WORKGRAPH_TAB"] {
         case "settings", "ai", "activity": return .settings
         case "chat": return .chat
+        case "plugins", "skills": return .plugins
         case "records", "files", "history", "library": return .records
         default: return .graph                                   // 권한·로그인 안내는 온보딩이 맡는다
         }
@@ -460,6 +462,7 @@ struct MainWindow: View {
                             }
                             case .records: RecordsView()
                             case .settings: SettingsView()
+                            case .plugins: CustomizeView()
                             }
                         }
                     }

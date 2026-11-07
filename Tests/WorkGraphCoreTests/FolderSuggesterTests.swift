@@ -171,7 +171,7 @@ final class FolderSuggesterTests: XCTestCase {
     }
 
     private func recordingText(_ name: String) throws -> String {
-        let url = root.appendingPathComponent("Documents/Sillog 녹음/\(name)")
+        let url = root.appendingPathComponent("Documents/SILLOG 녹음/\(name)")
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("# 녹음".utf8).write(to: url)
         return url.path

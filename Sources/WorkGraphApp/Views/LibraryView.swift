@@ -190,7 +190,7 @@ struct LibraryView: View {
         let recs = entries.compactMap { entry -> Recording? in if case .recording(let r) = entry { r } else { nil } }
         let mine = entries.compactMap { entry -> ChatLibraryItem? in if case .item(let i) = entry { i } else { nil } }
         switch kind {
-        case "home": LibraryHome(items: library.items, recordings: state.recordings, actions: actions)
+        case "home": LibraryHome(items: library.items, recordings: state.recordings, tasks: state.taskList, itemFocuses: library.itemFocuses, actions: actions)
         case "recording": LibraryRecordingList(recordings: recs, actions: actions)
         case "upload": LibraryUploadList(items: mine, actions: actions)
         case "generated": LibraryGeneratedGrid(items: mine, actions: actions, infos: infos)

@@ -38,6 +38,8 @@ final class AppState: ObservableObject {
     @Published var recordsSection: RecordsView.Section = MainWindow.initialRecordsSection
     /// 설정 탭에서 보고 있는 구역 (권한 안내가 일반으로 바로 연다)
     @Published var settingsSection: SettingsView.Section = MainWindow.initialSettingsSection
+    /// 플러그인 탭(맞춤 설정)에서 보고 있는 구역. WORKGRAPH_TAB=skills 면 스킬로 시작
+    @Published var customizeSection: CustomizeSection = ProcessInfo.processInfo.environment["WORKGRAPH_TAB"] == "skills" ? .skills : .plugins
     /// 업무 드로어(창 왼쪽 업무 목록)에서 고른 업무와 상세가 펼쳐졌는지. 업무 목록에서 눌러도, 그래프에서 눌러도 같은 드로어가 열린다
     @Published var selectedTaskId: Int64?
     @Published var taskDetailOpen = false
@@ -331,7 +333,7 @@ final class AppState: ObservableObject {
     }
 
     /// 녹음 정리: 기기 안 받아쓰기(녹음 중 미리 받아쓴 Whisper 글, 없으면 파일 전체를 Whisper 로, 못 쓰면 애플 음성 인식),
-    /// 제목은 빠른 모델, 받아쓴 글은 ~/Documents/Sillog 녹음. 미리 받아쓰기는 설정을 바꿔 다시 만들어도 녹음 중인 것을 잃지 않게 하나만 둔다
+    /// 제목은 빠른 모델, 받아쓴 글은 ~/Documents/SILLOG 녹음. 미리 받아쓰기는 설정을 바꿔 다시 만들어도 녹음 중인 것을 잃지 않게 하나만 둔다
     private func makeRecordingPipeline(_ database: WGDatabase) -> RecordingPipeline {
         let live = liveTranscriptions ?? LiveTranscriptions(prewarm: { await WhisperEngine.shared.prewarm() }) { samples in
             try await WhisperEngine.shared.transcribe(samples: samples)

@@ -325,7 +325,7 @@ final class ChatState: ObservableObject {
                 var succeeded = false
                 do {
                     let project = self.projects.projects.first(where: { $0.id == conversation.projectID })
-                    let result = try await runner.run(history: previous + [user], skillID: conversation.skillID, scheduled: automationID != nil, project: project) { [weak self] event in
+                    let result = try await runner.run(history: previous + [user], skillIDs: conversation.skillIDs, scheduled: automationID != nil, project: project) { [weak self] event in
                         await self?.receive(event)
                     }
                     try Task.checkCancellation()
@@ -438,7 +438,7 @@ final class ChatState: ObservableObject {
         let now = Date().timeIntervalSince1970
         guard var job = automations.filter({ $0.enabled && $0.nextRun <= now }).min(by: { $0.nextRun < $1.nextRun }) else { return }
         var conversation = ChatConversation()
-        conversation.title = "예약 · \(job.title)"; conversation.scope = job.scope; conversation.skillID = job.skillID
+        conversation.title = "예약 · \(job.title)"; conversation.scope = job.scope; conversation.skillIDs = job.skillIDs
         conversation.projectID = job.scope.projectID
         job.nextRun = now + Double(job.intervalHours) * 3600
         job.lastStatus = "실행 중"; job.lastConversationID = conversation.id

@@ -120,7 +120,7 @@ final class ChatFocusUITests: XCTestCase {
         }
     }
 
-    // 새 대화 첫 화면에서 바로: 왼쪽 업무 목록처럼 분야 폴더 아래 업무, 체크로 여러 개
+    // 새 대화 첫 화면에서 바로: 분야 칩 아래 업무 목록, 체크로 여러 개
     func testANewChatOffersFieldsAndTasksAsATree() throws {
         let text = try text(seed: seedTasks) { _ in }
         for part in ["무엇에대해이야기할까요", "모든기록", "개발", "Flask웹앱개발", "학업", "통계학수업", "기록안씀"] {
@@ -128,29 +128,31 @@ final class ChatFocusUITests: XCTestCase {
         }
     }
 
-    func testFolderAndTaskChecksFollowTheTreeRules() {
-        let a = ChatFocus(kind: .task, key: "a", title: "A"), b = ChatFocus(kind: .task, key: "b", title: "B")
-        let field = ChatFocusTree.Folder(key: "학업", title: "학업", tasks: [a, b])
-        let theme = ChatFocus(kind: .theme, key: "학업", title: "학업")
-        XCTAssertEqual(ChatFocusTree.toggle(field, in: []), [theme], "폴더를 체크하면 분야 전체")
-        XCTAssertEqual(ChatFocusTree.mark(field, in: [theme]), .all)
-        XCTAssertTrue(ChatFocusTree.isOn(b, in: field, selection: [theme]), "분야 전체면 안의 업무도 체크로 보인다")
-        XCTAssertEqual(ChatFocusTree.toggle(field, in: [theme]), [], "다시 누르면 뺀다")
-        XCTAssertEqual(ChatFocusTree.toggle(a, in: field, selection: [theme]), [b], "분야 전체에서 하나를 빼면 나머지 업무로 풀린다")
-        XCTAssertEqual(ChatFocusTree.mark(field, in: [b]), .some, "일부")
-        XCTAssertEqual(ChatFocusTree.toggle(field, in: [b]), [theme], "일부일 때 폴더를 누르면 분야 전체로")
-        XCTAssertEqual(ChatFocusTree.toggle(a, in: field, selection: [statsFocus]), [statsFocus, a], "다른 것과 함께 여러 개")
-        XCTAssertEqual(ChatFocusTree.toggle(a, in: field, selection: [a]), [])
-        let loose = ChatFocusTree.Folder(key: nil, title: "분야 없음", tasks: [a, b])
-        XCTAssertEqual(ChatFocusTree.toggle(loose, in: []), [a, b], "분야 없음은 분야로 고를 수 없어 업무를 하나씩")
+    private func item(_ key: String, _ title: String, field: String?, themeKey: String? = nil) -> ChatFocusChoices.TaskItem {
+        .init(focus: ChatFocus(kind: .task, key: key, title: title), theme: themeKey, themeKey: themeKey, field: field)
     }
 
-    func testSearchKeepsMatchingTasksUnderTheirField() {
-        let folders = [ChatFocusTree.Folder(key: "학업", title: "학업", tasks: [statsFocus, ChatFocus(kind: .task, key: "algebra", title: "선형대수 과제")]),
-                       ChatFocusTree.Folder(key: "개발", title: "개발", tasks: [flaskFocus])]
-        XCTAssertEqual(ChatFocusTree.filtered(folders, query: "통계").map(\.tasks), [[statsFocus]], "맞는 업무만, 분야 아래 그대로")
-        XCTAssertEqual(ChatFocusTree.filtered(folders, query: "학업").first?.tasks.count, 2, "분야 이름이 맞으면 그 분야 업무 전체")
-        XCTAssertTrue(ChatFocusTree.filtered(folders, query: "없는 말").isEmpty)
+    func testTaskChecksAddAndRemoveOneByOne() {
+        let a = item("a", "A", field: "학습"), b = item("b", "B", field: "학습")
+        XCTAssertEqual(ChatFocusTree.toggle(a, tasks: [a, b], selection: []), [a.focus])
+        XCTAssertEqual(ChatFocusTree.toggle(b, tasks: [a, b], selection: [a.focus]), [a.focus, b.focus], "여러 개")
+        XCTAssertEqual(ChatFocusTree.toggle(a, tasks: [a, b], selection: [a.focus]), [])
+    }
+
+    func testAStoredThemeFocusStillWorks() {
+        let a = item("a", "A", field: "학업", themeKey: "학업"), b = item("b", "B", field: "학업", themeKey: "학업")
+        let theme = ChatFocus(kind: .theme, key: "학업", title: "학업")
+        XCTAssertTrue(ChatFocusTree.isOn(b, tasks: [a, b], selection: [theme]), "분야 범위는 안의 업무가 체크로 보인다")
+        XCTAssertEqual(ChatFocusTree.toggle(a, tasks: [a, b], selection: [theme]), [b.focus], "하나를 빼면 나머지 업무로 풀린다")
+    }
+
+    func testChipsOnlyFilterTheList() {
+        let a = item("a", "통계학 수업", field: "학습"), b = item("b", "Flask 앱", field: "산출물작성"), c = item("c", "메모", field: nil)
+        XCTAssertEqual(ChatFocusTree.visible([a, b, c], filter: [], query: "").count, 3, "처음엔 전부")
+        XCTAssertEqual(ChatFocusTree.visible([a, b, c], filter: ["학습", "산출물작성"], query: "").map(\.focus.key), ["a", "b"], "여러 칩")
+        XCTAssertEqual(ChatFocusTree.visible([a, b, c], filter: [], query: "통계").map(\.focus.key), ["a"])
+        XCTAssertEqual(ChatFocusTree.visible([a, b, c], filter: ["산출물작성"], query: "통계").count, 0, "칩과 검색은 함께 걸린다")
+        XCTAssertEqual(ChatFocusTree.fields(.init(tasks: [a, b, c])).map(\.name), ["학습", "산출물작성", "분야 없음"])
     }
 
     func testPickingAStartChoiceFocusesTheChatAndTheInput() throws {
