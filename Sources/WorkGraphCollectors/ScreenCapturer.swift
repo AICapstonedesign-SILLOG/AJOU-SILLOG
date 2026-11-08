@@ -14,14 +14,14 @@ public struct ScreenCapturer: Sendable {
             let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
             let window: SCWindow?
             if let frame = snapshot.windowFrame {
-                // 접근성으로 읽은 창과 제목·위치가 같은 창 하나
-                let matches = content.windows.filter {
-                    $0.owningApplication?.processID == snapshot.pid && $0.title == snapshot.windowTitle && $0.frame == frame
-                }
-                window = matches.count == 1 ? matches.first : nil
+                let infos = content.windows.map { WindowInfo(pid: $0.owningApplication?.processID ?? 0, title: $0.title, frame: $0.frame) }
+                let index = Self.pick(infos, pid: snapshot.pid, title: snapshot.windowTitle, frame: frame,
+                                      allowChromeSuffix: BrowserURL.isChrome(snapshot.appBundle))
+                window = index.map { content.windows[$0] }
+            } else if let id = snapshot.screenWindowID {
+                window = content.windows.first { $0.windowID == id && $0.owningApplication?.processID == snapshot.pid }
             } else {
-                // 기기 제어 권한이 없으면 창 정보가 없다. 창 목록에서 그 앱의 맨 앞 창을 창 번호로 찾는다
-                window = Self.frontWindowID(pid: snapshot.pid).flatMap { id in content.windows.first { $0.windowID == id } }
+                window = nil
             }
             // 창을 하나로 특정하지 못하면 전체 화면으로 대체하지 않는다.
             guard let window else { return nil }
@@ -56,6 +56,30 @@ public struct ScreenCapturer: Sendable {
             return number.uint32Value
         }
         return nil
+    }
+
+    struct WindowInfo: Equatable {
+        var pid: pid_t
+        var title: String?
+        var frame: CGRect
+    }
+
+    /// 찍을 창: 같은 프로그램의 같은 위치·크기 창 중 제목이 같은 것, 없으면 Chrome 접근성 제목에서 프로필 꼬리표를 뺀 것.
+    /// Chrome 은 접근성 제목에만 " - Chrome - 프로필" 을 붙인다. 최대화한 창 여러 개는 위치·크기가 같아 제목으로 가린다. 하나로 정해지지 않으면 nil
+    static func pick(_ windows: [WindowInfo], pid: pid_t, title: String?, frame: CGRect, allowChromeSuffix: Bool = false) -> Int? {
+        let candidates = windows.indices.filter { windows[$0].pid == pid && windows[$0].frame == frame }
+        let exact = candidates.filter { windows[$0].title == title }
+        if !exact.isEmpty { return exact.count == 1 ? exact[0] : nil }
+        guard allowChromeSuffix, let title else { return nil }
+        let prefixed = candidates.compactMap { index -> (Int, Int)? in
+            guard let own = windows[index].title, !own.isEmpty, title.hasPrefix(own) else { return nil }
+            let suffix = title.dropFirst(own.count)
+            guard suffix == " - Chrome" || suffix.hasPrefix(" - Chrome - ") else { return nil }
+            return (index, own.count)
+        }
+        guard let longest = prefixed.map(\.1).max() else { return nil }
+        let best = prefixed.filter { $0.1 == longest }
+        return best.count == 1 ? best[0].0 : nil
     }
 
     @discardableResult

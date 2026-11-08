@@ -42,7 +42,7 @@ SIGN_IDENTITY="Apple Development: 인증서 이름" ./scripts/make-app.sh
 | (녹음 받아쓰기 모델) | Whisper large-v3-turbo 압축판(`openai_whisper-large-v3-v20240930_626MB`, 약 610MB)을 처음 받아쓸 때 데이터 폴더의 `models/` 아래로 내려받는다(WhisperKit, 기기 안). 녹음하는 동안 30초쯤마다 조용한 순간에 잘라 미리 받아써 두고(`LiveTranscription`), 끝나면 남은 조각만 받아쓴다(11분 녹음도 끝나고 약 2초). 앱을 다시 켰거나 미리 받아쓰기가 실패하면 파일 전체를 같은 30초 조각으로 받아쓴다. 내려받기·불러오기에 실패하면 애플 기기 안 음성 인식으로 받아쓴다. 모델은 90초 동안 안 쓰면 내려놓는다 |
 | `WORKGRAPH_TRANSCRIBE_TRACE` | 개발용 받아쓰기 진단: `<녹음 파일>|<적을 파일>`. 앱과 같은 방식으로 받아쓰며 인식기 결과(마지막 결과·발화 끝 표시·끝 시각·글)를 하나하나 적고 끝난다. 음성 인식 권한이 앱 번들에만 있어 `open -n Sillog.app --env 'WORKGRAPH_TRANSCRIBE_TRACE=…'` 로 띄운다. `WORKGRAPH_TRANSCRIBE_ENGINE=apple` 이면 애플 음성 인식으로(기본은 Whisper 로 파일 전체), `WORKGRAPH_TRANSCRIBE_GAIN=2` 로 애플 인식의 키울 배수를 직접 정할 수 있다. `WORKGRAPH_TRANSCRIBE_ENGINE=live` 면 파일을 녹음기처럼 흘려보내며 녹음 중 미리 받아쓰기를 하고 끝난 뒤 글이 나오기까지 걸린 시간을 적는다(`WORKGRAPH_TRANSCRIBE_SPEED=8` 로 8배 빨리) |
 | (숨은 설정 `frameLog`) | `defaults write com.capstone.workgraph frameLog -bool true` 면 화면 갱신마다 메인 스레드가 늦은 프레임을 재서, 늦은 프레임이 있던 1초마다 화면 이름과 함께 app.log 에 `프레임 기록 자료 > 파일: 120장 중 늦음 3 (많이 늦음 1), 가장 긴 간격 40ms` 처럼 남긴다. 앱을 다시 켜야 적용, `defaults delete … frameLog` 로 끈다 |
-| `WORKGRAPH_TAB` | 시작 탭: `graph`, `chat`, `records`(기록 자료), `settings`. `files`, `history`(지난 기록), `library` 는 기록 자료의 그 구역으로, `activity` 는 설정의 활동 로그로 연다 (업무 목록은 그래프 탭에만 있다) |
+| `WORKGRAPH_TAB` | 시작 탭: `graph`, `chat`, `records`(기록 자료), `calendar`, `settings`. `files`, `history`(지난 기록), `library` 는 기록 자료의 그 구역으로, `activity` 는 설정의 활동 로그로 연다 (업무 목록은 그래프 탭에만 있다) |
 
 ## 테스트와 CLI
 
@@ -83,6 +83,13 @@ swift run wgctl export-cypher graph.cypher
 
 덤프와 내보내기에는 개인 기록이 포함될 수 있으므로 저장소에 커밋하지 마세요.
 
+`wgctl find-events 배치ID…`는 저장된 배치의 행을 일정 찾기에 다시 보내 찾은 일정을 보여 줍니다(제안은 만들지 않음, 배치당 LLM 호출 1번). 앱이 아직 모르는 마이그레이션이 있으면 CLI가 DB를 열면서 적용하므로, 실제 기록으로 볼 때는 사본을 떠서 씁니다.
+
+```bash
+sqlite3 "file:$HOME/Library/Application Support/WorkGraph/workgraph.sqlite?mode=ro" ".backup '/tmp/wg-copy.sqlite'"
+WORKGRAPH_DB=/tmp/wg-copy.sqlite swift run wgctl find-events 1851 1779
+```
+
 ## 데이터 구조
 
 ```text
@@ -98,6 +105,7 @@ SQLite 원시 기록 + 화면 기억 카드
 - 앱·창·URL은 3초마다 확인합니다. 화면 캡처는 활성 창을 대상으로 하며, 캡처 도중 창이 바뀌면 저장하지 않습니다.
 - LLM 정리는 기본 5분 배치로 실행하지만, 업무 판단 단위는 개별 관측 행입니다. 목표에 기여하는 행, 집중 이탈, 내용 없는 화면을 구분합니다.
 - 화면 기억 카드는 대표 스크린샷의 내용을 요약합니다. 업무 배정과 채팅 검색에 활용하며 설정에서 끌 수 있습니다.
+- 스크린샷은 앞 창 하나만 찍습니다(`ScreenCapturer.pick`: 같은 프로그램·위치·크기, 제목이 같거나 접근성 제목이 "캡처 쪽 제목 - …"인 창. Chrome 은 접근성 제목에만 " - Chrome - 프로필"을 붙입니다). 하나로 정해지지 않으면 찍지 않습니다.
 - 세션은 같은 업무의 관측을 시간으로 묶습니다. URI 정규화·체류시간·세션 구성·프로젝트 연결은 LLM 없이 계산합니다.
 - AI 코딩 도구 로그는 Claude Code·Codex의 로컬 기록에서 사용자 입력만 읽습니다. 처음에는 최근 24시간, 이후에는 새로 추가된 내용을 읽습니다. 앱 채팅과는 별도 데이터입니다.
 
@@ -166,6 +174,12 @@ swift run wgctl digest show --week 2026-W40   # 요약 확인
 - **프로젝트 제안·소속**(화면에서 뺌, 자동 제안도 부르지 않음. 데이터와 코드는 남김): `Sources/WorkGraphCore/Chat/ProjectOrganizer.swift`, `ProjectStore.swift`, `Sources/WorkGraphApp/Chat/ProjectState.swift`
 - **자료 보관·추출**: `Sources/WorkGraphCore/Chat/LibraryStore.swift`, `FileTextExtractor.swift`, `Sources/WorkGraphApp/Chat/LibraryState.swift`, `Views/LibraryView.swift`
 - **그래프 화면**: `Sources/WorkGraphApp/Resources/graph`
+- **기능 켜고 끄기**: `Sources/WorkGraphApp/AppFeatures.swift`. 캘린더(캘린더 탭, 메뉴 막대 캘린더 줄, 일정 찾기·알림, 설정·온보딩의 캘린더 권한)는 기본 꺼짐, `defaults write com.capstone.workgraph calendar -bool true` 로 켠다
+- **일정 제안**: `Sources/WorkGraphCore/Calendar/EventFinder.swift`(정리를 반영한 뒤 그 행 전부(업무 외 포함)를 다시 보내 일정을 찾는다. 남기는 것은 대화에서 정한 약속·회의·마감과 보고 있는 과제 하나의 마감뿐이고, 기간·계획표·캘린더 앱 화면은 뺀다. 무시한 제안은 거절한 예로 같이 보내고, 한 웹페이지에서 3개 넘게 남기면 계획표로 보고 버린다. 이미 아는 일정과 겹치는 것도 거른다), `Storage/EventSuggestionStore.swift`, `Sources/WorkGraphApp/Calendar/CalendarService.swift`(EventKit: 오늘 일정, 등록, 직접 넣은 일정은 제안에서 닫기), `AppState+Calendar.swift`(새 제안 알림, 알림의 [등록]/[무시]). 캘린더 화면은 `Views/CalendarView.swift`(오른쪽 제안 카드·연결한 캘린더), `Calendar/CalendarWebView.swift`(웹 달력과 주고받기: 보이는 기간의 일정을 약속으로 답함), `Calendar/CalendarFeed.swift`(일정·제안 → FullCalendar 이벤트), `Resources/calendar`(FullCalendar 6.1.22 표준 묶음과 한국어, MIT, `vendor/fullcalendar/LICENSE.md`). 구글 계정 직접 연결은 `Sources/WorkGraphCore/Calendar/GoogleCalendarClient.swift`(캘린더 목록·기간 일정·일정 넣기)와 `CalendarService` 의 구글 확장(로그인은 `PluginAuth` 의 "gcal", 맥과 겹치는 캘린더는 `CalendarFeed.merge` 가 숨김)
+- **정리 제안 (하루 한 번)**: `Sources/WorkGraphCore/Memory/WeeklyReview.swift`(AI 2번: TaskMerger 를 60일로 + 한 제품의 다른 이름·부분 작업 규칙과 업무별 프로젝트 폴더, 주제·나중에 할 일·문제를 한 번에 `tidy_graph`. 짧은 세션 붙이기는 AI 없이. `ReviewStore` 는 review_proposals 표. 거절은 짝 단위(`ReviewProposal.units`)로 기억해 다음 주 묶음이 달라져도 빼고, 반영한 것은 막지 않음. 반영과 표시는 `ReviewStore.apply` 한 트랜잭션, 앞에서 합쳐져 사라진 키는 남은 키로 따라감. 주제·문제 정리 호출이 실패하면 업무 합치기만 제안), `Sources/WorkGraphApp/AppState+Review.swift`(오늘 안 만들었으면 기록 정리 루프에서, 새 제안이 있을 때만 알림, 실패하면 하루 뒤, 시트를 연 동안은 갈아 끼우지 않음, 반영하는 동안 정리 멈춤), `Views/ReviewSheet.swift`(시트와 업무 목록 위 줄). 실제 기록으로 미리 보기: `WORKGRAPH_DB=사본 wgctl weekly-review`
+- **덜 쪼개고 덜 저장하기**: `SessionBuilder.glance`(1분 미만 행은 같은 날 같은 업무 세션에 붙임), ③ 업무 설명에 `topics in use`(기존 주제 이름을 다시 쓰게), `Storage/ScreenText.swift`(편집기 글자 3천 자, 업무 외 행 글자는 첫 삭제 동의와 설정한 보관 기간을 확인한 뒤 `Consolidator`에서 지움, 기간 핀은 남김)
+- **노드 상세·지우기**: `Sources/WorkGraphCore/Ontology/NodeDetail.swift`(노드 종류별 사실과 연결 묶음), `NodeEraser.swift`(노드 하나를 하위 노드와 원시 기록까지: 세션은 그 업무의 그 시간대 행, 자료는 그 키로 분류되는 행·화면 카드, 앱은 그 앱의 행 전부. 다른 노드에도 걸린 하위 노드는 남김, 업무 종류 같은 클래스는 안 지움), `RecordEraser.swift`(행·글 조각·화면 카드·정리 기록 원문 지우기, TaskEraser 와 함께 씀), `Sources/WorkGraphApp/AppState+NodeDetail.swift`·`Views/NodeDetailView.swift`(드로어 자리의 노드 상세, 상세 안에서 넘어가면 ‹ 뒤로), `EraseDialog`(지우기 확인 창 하나), 그래프 `index.html` 의 `refOf`/`showNode`/`nodeMenu`(보기 4개가 그린 것을 노드 키로 바꿔 앱에 보냄, 우클릭은 앱이 NSMenu 로)
+- **업무 지우기**: `Sources/WorkGraphCore/Ontology/TaskEraser.swift`(업무·분야를 원시 행, 그 행에만 쓰인 글 조각·화면 카드, AI 대화·녹음, 요약·시간 기록까지 지우고 그 업무가 나온 정리 기록 원문을 비운다. 그래프는 `TaskMerger.retire` 로 정리, `compact` 로 검색 색인 다시 쓰기와 VACUUM), `Sources/WorkGraphApp/AppState+Erase.swift`(지우는 동안 정리 멈춤), 업무 상세의 '이 업무 지우기'(`TasksView`), CLI `wgctl erase-theme 분야이름 [--yes]`
 - **기록 정리**: `Sources/WorkGraphCore/Memory/Consolidator.swift`, `LedgerBuilder.swift`, `ActivityTally.swift`, `Digest*.swift`, `Storage/Pruner.swift`, `RetentionPolicy.swift`, `StorageUsage.swift`, `Sources/WorkGraphApp/Views/StorageSettingsView.swift`
 
 채팅 하위 에이전트는 독립적인 대화와 읽기 도구를 사용하고, 재위임하지 않습니다. 시스템 프롬프트는 주 에이전트와 같지만 `agent_role`에 역할 이름이 들어가고 스킬·프로젝트·기억 자료 블록은 빠집니다. 주·하위 작업은 한 요청의 실행 예산을 공유합니다. OpenAI 호환 방식은 모델 호출 최대 24회, Codex 방식은 에이전트 실행 최대 24회와 실행별 앱 도구 호출 최대 32회입니다. 사용자가 중단하면 실행을 취소합니다.

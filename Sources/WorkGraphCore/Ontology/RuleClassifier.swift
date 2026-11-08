@@ -156,7 +156,7 @@ public enum RuleClassifier {
 
     // MARK: 에디터 창 제목
 
-    static func isEditor(bundle: String, name: String) -> Bool {
+    public static func isEditor(bundle: String, name: String) -> Bool {
         if editorBundlePrefixes.contains(where: { bundle.hasPrefix($0) }) { return true }
         let lower = name.lowercased()
         return editorNameHints.contains { lower == $0 || lower.hasPrefix($0 + " ") || lower.hasSuffix(" " + $0) }

@@ -4,12 +4,26 @@ import Foundation
 /// 브라우저의 현재 URL 찾기. AppleScript 를 쓰지 않아 추가 권한(자동화)이 필요 없다.
 enum BrowserURL {
     static let browserBundles: Set<String> = [
-        "com.apple.Safari", "com.apple.SafariTechnologyPreview", "com.google.Chrome", "com.google.Chrome.canary",
+        "com.apple.Safari", "com.apple.SafariTechnologyPreview",
         "com.microsoft.edgemac", "com.brave.Browser", "company.thebrowser.Browser", "org.mozilla.firefox",
         "com.naver.Whale", "com.vivaldi.Vivaldi", "com.operasoftware.Opera", "org.chromium.Chromium", "app.zen-browser.zen",
     ]
 
-    static func isBrowser(_ bundle: String) -> Bool { browserBundles.contains(bundle) }
+    static func isChrome(_ bundle: String) -> Bool {
+        let id = bundle.lowercased()
+        return id == "com.google.chrome" || id.hasPrefix("com.google.chrome.")
+    }
+
+    static func isBrowser(_ bundle: String) -> Bool { isChrome(bundle) || browserBundles.contains(bundle) }
+
+    /// 접근성 없이 캡처할 때, 알려진 목록 밖의 브라우저도 앱의 웹 주소 등록 정보로 확인한다.
+    static func registersWebLinks(_ info: [String: Any]) -> Bool {
+        let urlTypes = info["CFBundleURLTypes"] as? [[String: Any]] ?? []
+        return urlTypes.contains { type in
+            let schemes = type["CFBundleURLSchemes"] as? [String] ?? []
+            return schemes.contains { ["http", "https"].contains($0.lowercased()) }
+        }
+    }
 
     /// 1) 창의 AXDocument (Safari·Chrome·Edge)  2) 첫 AXWebArea 의 AXURL  3) 주소창 텍스트 필드
     static func find(in window: AXUIElement) -> String? {

@@ -309,6 +309,7 @@ window.V3D.sankey = function (main, data, ui) {
         ribs.push({ t: x.t, p, lab: null, x, nk: x.nk });
         p.addEventListener('mouseenter', () => over(x)); p.addEventListener('mousemove', mvT); p.addEventListener('mouseleave', out);
         p.addEventListener('click', () => { if (!dragged) { ui.select?.(x.t.id); zoomSwap(x.t.id); } });
+        p.addEventListener('contextmenu', ev => ui.menu?.({ task: x.t.id }, ev));
         ty += tw;
       });
     });
@@ -329,6 +330,7 @@ window.V3D.sankey = function (main, data, ui) {
       t.textContent = x.txt; rb.lab = t;
       const hh = Math.min(16, Math.max(8, minSlot)), hit = el('rect', { x: xT + 13, y: cy - hh / 2, width: x.nw + 8, height: hh, fill: 'transparent', style: 'cursor:pointer' }, lg);
       hit.addEventListener('mouseenter', () => over(x)); hit.addEventListener('mousemove', mvT); hit.addEventListener('mouseleave', out); hit.addEventListener('click', () => { if (!dragged) { ui.select?.(x.t.id); zoomSwap(x.t.id); } });
+      hit.addEventListener('contextmenu', ev => ui.menu?.({ task: x.t.id }, ev));
     });
     // 가운데 마디: 검은 얇은 막대 + 이름표, 위아래로 끎
     const chips = [];
@@ -339,20 +341,24 @@ window.V3D.sankey = function (main, data, ui) {
       let ly = cy; chips.forEach(c => { if (Math.abs(c.cy - ly) < 14) ly = c.cy + 14; });   // 앞 이름과 14px 안이면 아래로 비킨다
       chips.push({ cy: ly });
       const cx = xM;
-      const hit = el('rect', { x: Math.min(xM - 6, cx - cwid / 2), y: Math.min(y - 3, cy - 10), width: Math.max(12, cx + cwid / 2 - Math.min(xM - 6, cx - cwid / 2)), height: Math.max(h + 6, 20), fill: 'transparent', style: 'cursor:default' }, vg);
+      const hit = el('rect', { x: Math.min(xM - 6, cx - cwid / 2), y: Math.min(y - 3, cy - 10), width: Math.max(12, cx + cwid / 2 - Math.min(xM - 6, cx - cwid / 2)), height: Math.max(h + 6, 20), fill: 'transparent', style: 'cursor:pointer' }, vg);
       const t = el('text', { x: cx - 8, y: ly + 4, 'text-anchor': 'end', 'font-size': 12, 'font-weight': 700, fill: '#2A201B', 'pointer-events': 'none' }, vg); t.textContent = label;   // 막대 왼쪽, 흰 테두리로 띠 위에서 읽힘
       hit.addEventListener('mouseenter', () => { if (dragged) return; hoverNode = id; apply(); });
       hit.addEventListener('mouseleave', () => { if (!dragged) { hoverNode = null; apply(); } });
+      hit.addEventListener('click', () => { if (!dragged) ui.node?.({ type: q.type }); });   // 업무 종류 상세 (끌어 옮긴 뒤가 아니면)
+      hit.addEventListener('contextmenu', ev => ui.menu?.({ type: q.type }, ev));
       grab(hit, R2, id, R2.order.slice());
     });
     // 오른쪽 분야 막대
     bars.forEach(b => {
       const h = Math.max(b.y1 - b.y0, 2), cy = b.y0 + h / 2;
       el('rect', { x: xB - 6, y: b.y0, width: 6, height: h, fill: b.th.color }, vg);   // 분야 열만 분야 색 막대
-      const hit = el('rect', { x: xB - 110, y: Math.min(b.y0 - 4, cy - 12), width: 114, height: Math.max(h + 8, 24), fill: 'transparent', style: 'cursor:default' }, vg);
+      const hit = el('rect', { x: xB - 110, y: Math.min(b.y0 - 4, cy - 12), width: 114, height: Math.max(h + 8, 24), fill: 'transparent', style: 'cursor:pointer' }, vg);
       const t = el('text', { x: xB - 14, y: cy + 5, 'text-anchor': 'end', 'font-size': 13, 'font-weight': 700, fill: b.th.color, 'pointer-events': 'none' }, vg); t.textContent = b.th.name;
       hit.addEventListener('mouseenter', () => { if (dragged) return; hoverTheme = b.th.id; apply(); });
       hit.addEventListener('mouseleave', () => { if (!dragged) { hoverTheme = null; apply(); } });
+      hit.addEventListener('click', () => { if (!dragged) ui.node?.({ theme: b.th.id }); });   // 분야 상세
+      hit.addEventListener('contextmenu', ev => ui.menu?.({ theme: b.th.id }, ev));
       grab(hit, R1, b.th.id, R1.order.slice());
     });
     ribs.forEach(r => { if (!r.lab) r.lab = el('g', {}); });

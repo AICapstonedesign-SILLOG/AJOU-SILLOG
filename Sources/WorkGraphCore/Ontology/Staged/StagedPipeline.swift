@@ -273,7 +273,7 @@ public enum StagedPipeline {
             let definition = state.assignment.tasks.first { $0.ref == ref }
             let existing = definition?.match == "existing" ? definition?.id.flatMap { byId[$0] } : nil
             return StagePrompt.Group(ref: ref, isNew: existing == nil, title: existing?.title ?? definition?.title ?? ref,
-                                     goal: existing?.goal ?? definition?.goal, rows: rowsByRef[ref] ?? [])
+                                     goal: existing?.goal ?? definition?.goal, rows: rowsByRef[ref] ?? [], topics: existing?.topics ?? [])
         }
     }
 

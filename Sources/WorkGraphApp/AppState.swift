@@ -13,6 +13,8 @@ final class AppState: ObservableObject {
     @Published var pendingCount = 0
     @Published var lastBatchText = "아직 정리한 적 없음"
     @Published var batchRunning = false
+    /// 업무를 지우는 중 (그동안 정리를 멈춘다)
+    @Published var erasing = false
     @Published var batchResult: Bool?                  // 방금 끝난 지금 정리 결과(창 머리에 체크나 X 로 잠깐 보임). nil = 보이지 않음
     @Published var graphVersion = 0
     @Published var recent: [Observation] = []
@@ -42,7 +44,19 @@ final class AppState: ObservableObject {
     @Published var customizeSection: CustomizeSection = ProcessInfo.processInfo.environment["WORKGRAPH_TAB"] == "skills" ? .skills : .plugins
     /// 업무 드로어(창 왼쪽 업무 목록)에서 고른 업무와 상세가 펼쳐졌는지. 업무 목록에서 눌러도, 그래프에서 눌러도 같은 드로어가 열린다
     @Published var selectedTaskId: Int64?
-    @Published var taskDetailOpen = false
+    @Published var taskDetailOpen = false { didSet { if !taskDetailOpen { openNode = nil; nodeTrail = [] } } }   // 드로어를 닫으면 노드 상세도 닫는다
+    /// 드로어에 띄운 업무가 아닌 노드 (그래프에서 분야·세션·자료·앱·주제 등을 눌렀을 때). nil 이면 업무 상세
+    @Published var openNode: NodeRef?
+    /// 노드 상세에서 연결된 노드로 넘어간 길 (‹ 뒤로)
+    @Published var nodeTrail: [NodeRef] = []
+    /// 지우기 확인 창에 띄울 것 (그래프 우클릭, 상세의 지우기 단추)
+    @Published var eraseAsk: EraseAsk?
+    /// 지우기가 실패했을 때 알림 창에 띄울 글 (실패하면 아무것도 안 지워진다)
+    @Published var eraseError: String?
+    /// 정리 제안 (대기 중인 것), 제안 시트, 제안을 만드는 중
+    @Published var reviewProposals: [ReviewProposal] = []
+    @Published var reviewSheetOpen = false
+    @Published var reviewRunning = false
     /// 파일 정리 제안. 대기 중인 것이 앞에 온다.
     /// 대기 중인 제안 전부 + 지난 기록의 지금 쪽
     @Published var fileSuggestions: [FileSuggestion] = []
@@ -111,7 +125,7 @@ final class AppState: ObservableObject {
     private var servicesRunning = false
     private var bootstrapLogged = false
     /// 스냅샷용 미리보기 상태. DB·잠금·수집기·권한 읽기를 하지 않는다
-    private var isPreview = false
+    private(set) var isPreview = false
     private let instanceLock = InstanceLock(databasePath: WGDatabase.defaultPath())
     private static let onboardingKey = "workgraph.onboardingCompleted"
     /// Figma OUT-W3 문구
@@ -136,15 +150,15 @@ final class AppState: ObservableObject {
             FrameMonitor.shared.screen = { [weak self] in self?.screenName ?? "" }   // 개발용 프레임 측정 로그의 화면 이름
             self.chat = ChatState(db: database, makeClient: { [unowned self] in self.makeChatClient() },
                                   makeProjectClient: { [unowned self] in self.makeClient() })
-            var batchConfig = BatchConfig()
-            // 숨은 설정: defaults write com.capstone.workgraph batchPipeline single (없으면 기본값인 3단계)
-            batchConfig.pipeline = BatchPipeline(rawValue: UserDefaults.standard.string(forKey: "batchPipeline") ?? "") ?? batchConfig.pipeline
-            // 숨은 설정: defaults write com.capstone.workgraph themes -bool true (없으면 분야 붙이기는 꺼짐)
-            batchConfig.themes = UserDefaults.standard.bool(forKey: "themes")
+            // 숨은 설정: defaults write com.capstone.workgraph batchPipeline single (없으면 기본값인 3단계),
+            // themes -bool true (없으면 분야 붙이기는 꺼짐), calendar -bool true (없으면 일정 찾기는 꺼짐, AppFeatures)
+            let batchConfig = Self.batchConfig(themes: UserDefaults.standard.bool(forKey: "themes"), pipeline: UserDefaults.standard.string(forKey: "batchPipeline"),
+                                               calendar: AppFeatures.calendarOn)
             let batcher = OntologyBatcher(db: database, llm: makeClient(), config: batchConfig)
             self.batcher = batcher
             self.consolidator = Consolidator(db: database, llm: makeClient())
             loadRetentionState()
+            loadReview()
             let cardsOn = settings.screenCards && settings.captureScreenshots
             Task { await batcher.setScreenCards(cardsOn) }
             let judge = settings.judgeEndpoint
@@ -160,6 +174,9 @@ final class AppState: ObservableObject {
                 MainActor.assumeIsolated { self?.finishRecordingOnQuit() }
             }
             notifier.onAction = { [weak self] action, id in Task { @MainActor in self?.handleNotificationAction(action, id: id) } }
+            notifier.onEventAction = { [weak self] action, id in Task { @MainActor in self?.handleEventNotificationAction(action, id: id) } }
+            notifier.onReview = { [weak self] in Task { @MainActor in self?.openReview() } }
+            if AppFeatures.calendarOn { attachCalendar(database, batcher: batcher) }   // 캘린더를 꺼 두면 EventKit 도 읽지 않는다
             notifier.onDenied = { [weak self] denied in Task { @MainActor in self?.notificationsDenied = denied } }
         } catch {
             startupError = "데이터베이스를 열 수 없습니다: \(error.localizedDescription)"
@@ -305,6 +322,7 @@ final class AppState: ObservableObject {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 600_000_000_000)
                 await self?.consolidateIfDue()
+                await self?.reviewIfDue()                  // 하루 한 번 정리 제안 (오늘 아직 안 만들었으면)
             }
         })
         tasks.append(Task { [weak self] in                 // 녹음: 꺼지기 전에 못 끝낸 것을 이어서 정리하고, 7일 지난 녹음 파일을 지운다 (켤 때와 하루 한 번)
@@ -323,7 +341,16 @@ final class AppState: ObservableObject {
     }
 
     /// 행 배정(배치)용: 추론 medium. 평가에서 low 보다 업무 판정 +1.6%p, 자료 판정 +4%p 였고 배치는 백그라운드라 지연이 상관없다
-    private func makeClient() -> any LLMClient {
+    /// 정리 설정: 숨은 설정 값으로. 캘린더를 꺼 두면 정리 뒤 일정 찾기(AI 호출)도 하지 않는다
+    static func batchConfig(themes: Bool, pipeline: String?, calendar: Bool) -> BatchConfig {
+        var config = BatchConfig()
+        config.pipeline = BatchPipeline(rawValue: pipeline ?? "") ?? config.pipeline
+        config.themes = themes
+        config.findEvents = calendar
+        return config
+    }
+
+    func makeClient() -> any LLMClient {
         settings.llmUsesAPI ? makeOpenAIClient() : CodexResponsesClient(auth: codexAuth, model: settings.codexModel, reasoningEffort: "medium")
     }
 
@@ -577,10 +604,11 @@ final class AppState: ObservableObject {
     // MARK: 동작
 
     func runBatch(force: Bool) async {
-        guard let batcher, settings.batchEnabled || force, !batchRunning else { return }
+        guard let batcher, settings.batchEnabled || force, !batchRunning, !erasing else { return }   // 지우는 동안은 정리하지 않는다 (지운 업무를 다시 만들지 않게)
         batchRunning = true
         defer { batchRunning = false }
         var applied = false, failed = false
+        var announced = 0                                  // 이번 정리에서 띄운 일정 알림 (3개까지)
         batchResult = nil
         for _ in 0..<20 {                                  // 밀린 구간이 많으면 이어서 처리
             let outcome = await batcher.runIfDue(force: force)
@@ -589,6 +617,7 @@ final class AppState: ObservableObject {
                 applied = true
                 AppLog.write("정리 성공: 세션 \(stats.sessions + stats.sessionsExtended), 새 업무 \(stats.tasksCreated), 자료 \(stats.resources)")
                 lastBatchText = MenuBarModel.batchSummary(clock: Self.clock.string(from: Date()), newTasks: stats.tasksCreated, resources: stats.resources)
+                announced += announceEventSuggestions(limit: 3 - announced)   // 밀린 구간이 길어도 찾은 일정은 바로 알린다
                 continue
             case .failed(let message):
                 failed = true

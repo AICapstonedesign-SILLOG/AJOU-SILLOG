@@ -54,6 +54,10 @@ wgctl [--db PATH] <command>
   recard [--ids 1,2] [--kind message]   카드를 저장된 스크린샷으로 지금 규칙에 맞춰 다시 만든다 (12장씩 한 호출)
   topic-audit [--last N]                지난 배치들의 LLM 응답에서 주제 태그를 모아 필터가 거를 것을 센다 (프롬프트 대 필터 평가)
   replay-batch ID [ID…]                 저장된 배치의 입력을 지금 프롬프트로 다시 보내 응답을 비교한다 (기록하지 않음. 배치당 LLM 호출 1번)
+  find-events ID [ID…]                  저장된 배치의 행에서 일정 찾기를 돌려 찾은 일정을 보여 준다 (제안을 만들지 않음. 배치당 LLM 호출 1번)
+  erase-theme 분야이름 [--yes]          그 분야의 업무를 원시 기록·화면 카드·요약까지 지운다 (기본은 세기만, --yes 는 앱을 끄고. 지운 뒤 VACUUM)
+  erase-node 종류 키 [--yes]            노드 하나를 하위 노드·원시 기록까지 지운다 (종류: Session, Resource, App, Topic …. 기본은 세기만)
+  weekly-review                          정리 제안(하루 한 번)을 만들어 보여 준다 (반영하지 않음. LLM 호출 2번)
   rejudge ID [ID…]                      배치들의 행을 지금 규칙으로 다시 판정해 기록을 바꾸고 세션을 다시 계산한다 (카드는 연결된 것을 쓴다. 앱을 끄고 실행)
   gold-candidates --from YYYY-MM-DD [--to YYYY-MM-DD] [--limit N] [--model M] [--reasoning high] [--out FILE]
                                         정답 세트 재료: 그 기간 배치의 행을 앱과 같은 방식으로 다시 만들어 판정만 받고(기록 안 함),
@@ -437,8 +441,8 @@ do {
         let demo = flag("--demo-llm")
         let client: any LLMClient = demo ? DemoLLM() : makeClient().client
         var batchConfig = BatchConfig()
-        // 데모 LLM 은 한 번 호출 형식으로만 답하고 분야 도구는 모른다
-        if demo { batchConfig.pipeline = .single; batchConfig.themes = false }
+        // 데모 LLM 은 한 번 호출 형식으로만 답하고 분야 도구·일정 찾기는 모른다
+        if demo { batchConfig.pipeline = .single; batchConfig.themes = false; batchConfig.findEvents = false }
         let batcher = OntologyBatcher(db: db, llm: client, config: batchConfig)
         var round = 0
         repeat {
@@ -891,7 +895,9 @@ do {
         let (reopened, lastTs) = try store.reopenBatches(ids)
         guard let lastTs else { fail("그 배치들에 행이 없음") }
         print("배치 \(ids.count)개의 행 \(reopened)개를 지금 규칙으로 다시 판정합니다")
-        let batcher = OntologyBatcher(db: db, llm: makeClient().client)
+        var rejudgeConfig = BatchConfig()
+        rejudgeConfig.findEvents = false                 // 지난 행을 다시 판정할 뿐: 일정은 처음 정리할 때 이미 찾았다
+        let batcher = OntologyBatcher(db: db, llm: makeClient().client, config: rejudgeConfig)
         var round = 0
         while round < 20, let oldest = try store.oldestUnprocessedTs(), oldest <= lastTs {
             round += 1
@@ -1150,6 +1156,83 @@ do {
             guard let fresh = AssignmentPatch.decodeLenient(from: result.arguments) else { print("새 응답: 해석 실패\n\(result.raw.prefix(300))"); continue }
             print("지금 프롬프트 (배정 \(fresh.rows.count)줄, \(String(format: "%.1f", Date().timeIntervalSince(started)))초, 토큰 \(result.promptTokens)+\(result.completionTokens)):")
             describe(fresh).forEach { print($0) }
+        }
+
+    case "erase-theme":
+        guard let title = args.first, !title.hasPrefix("--") else { fail("사용법: erase-theme 분야이름 [--yes]") }
+        let yes = flag("--yes")
+        let instance = InstanceLock(databasePath: dbPath)
+        if yes, !instance.acquire() { fail("이 DB 를 쓰는 Sillog 앱이 실행 중입니다. 앱을 종료한 뒤 다시 실행하세요.") }
+        defer { if yes { instance.release() } }
+        let now = Date().timeIntervalSince1970
+        let report = yes ? try db.writer.write { try TaskEraser.erase(theme: title, conn: $0, now: now, dry: false) }
+                         : try db.writer.read { try TaskEraser.erase(theme: title, conn: $0, now: now, dry: true) }
+        guard !report.tasks.isEmpty else { fail("'\(title)' 분야나 그 분야의 업무가 없습니다") }
+        print("분야 '\(title)'의 업무 \(report.tasks.count)개: \(report.tasks.joined(separator: " / "))")
+        print("원시 행 \(report.observations), 화면 카드 \(report.cards), 글 조각 \(report.texts), AI 대화 \(report.chats), 녹음 \(report.recordings), 요약 \(report.digests), 일정 제안 \(report.suggestions), 원문을 비울 정리 기록 \(report.batches), 파일 \(report.files.count)")
+        guard yes else { print("세기만 했습니다. 지우려면 앱을 끄고 --yes 를 붙이세요."); break }
+        let files = TaskEraser.removeFiles(report.files, within: URL(fileURLWithPath: dbPath).deletingLastPathComponent().path)
+        if files.skipped > 0 { print("이 DB 의 데이터 폴더 밖 파일 \(files.skipped)개는 지우지 않았습니다 (DB 사본이면 진짜 파일이라서)") }
+        let removed = files.removed
+        try TaskEraser.compact(db)
+        print("지웠습니다 (파일 \(removed)개). DB 를 VACUUM 했습니다.")
+
+    case "weekly-review":
+        let started = Date()
+        let proposals = try await WeeklyReview.plan(db: db, llm: makeClient().client, now: Date().timeIntervalSince1970)
+        print("제안 \(proposals.count)개 (\(String(format: "%.1f", Date().timeIntervalSince(started)))초)")
+        for kind in ReviewProposal.Kind.allCases {
+            let items = proposals.filter { $0.kind == kind }
+            guard !items.isEmpty else { continue }
+            print("== \(kind.rawValue) \(items.count)")
+            for item in items { print("  · \(item.summary)") }
+        }
+
+    case "erase-node":
+        guard args.count >= 2, !args[0].hasPrefix("--") else { fail("사용법: erase-node 종류 키 [--yes]") }
+        let (label, key, yes) = (args[0], args[1], flag("--yes"))
+        let instance = InstanceLock(databasePath: dbPath)
+        if yes, !instance.acquire() { fail("이 DB 를 쓰는 Sillog 앱이 실행 중입니다. 앱을 종료한 뒤 다시 실행하세요.") }
+        defer { if yes { instance.release() } }
+        let now = Date().timeIntervalSince1970, started = Date()
+        let report = yes ? try db.writer.write { try NodeEraser.erase(label: label, key: key, conn: $0, now: now, dry: false) }
+                         : try db.writer.read { try NodeEraser.erase(label: label, key: key, conn: $0, now: now, dry: true) }
+        guard !report.title.isEmpty else { fail("\(label) '\(key)' 노드가 없습니다") }
+        guard report.erasable else { fail("'\(report.title)'은 클래스라 지우지 않습니다") }
+        print("\(label) '\(report.title)': 노드 \(report.nodes), 원시 행 \(report.observations), 화면 카드 \(report.cards), 글 조각 \(report.texts), AI 대화 \(report.chats), 녹음 \(report.recordings), 원문을 비울 정리 기록 \(report.batches), 파일 \(report.files.count) (\(String(format: "%.2f", Date().timeIntervalSince(started)))초)")
+        guard yes else { print("세기만 했습니다. 지우려면 앱을 끄고 --yes 를 붙이세요."); break }
+        let files = TaskEraser.removeFiles(report.files, within: URL(fileURLWithPath: dbPath).deletingLastPathComponent().path)
+        if files.skipped > 0 { print("이 DB 의 데이터 폴더 밖 파일 \(files.skipped)개는 지우지 않았습니다 (DB 사본이면 진짜 파일이라서)") }
+        let removed = files.removed
+        try TaskEraser.compact(db)
+        print("지웠습니다 (파일 \(removed)개). DB 를 VACUUM 했습니다.")
+
+    case "find-events":
+        let ids = args.compactMap(Int64.init)
+        guard !ids.isEmpty else { fail("사용법: find-events ID [ID…]") }
+        let client = makeClient().client
+        let known = try EventSuggestionStore(db).upcoming(from: Calendar.current.startOfDay(for: Date()))
+            .map { EventFinder.Known(title: $0.title, start: Date(timeIntervalSince1970: $0.start), allDay: $0.allDay) }
+        let rejected = try EventSuggestionStore(db).dismissed()
+        for id in ids {
+            guard let batch = try store.batch(id: id), let prompt = batch.userPrompt else { print("#\(id): 배치 없음 또는 프롬프트 미저장"); continue }
+            // 3단계 배치면 ① 업무 여부 단계의 행 줄: ROWS 머리줄 다음부터 다음 단계 표시([assign]) 전까지
+            let lines = prompt.components(separatedBy: "\n")
+            guard let header = lines.firstIndex(where: { $0.hasPrefix("ROWS (row | time") }) else { print("#\(id): 행 줄 없음"); continue }
+            let rows = lines[(header + 1)...].prefix { !($0.hasPrefix("[") && $0.hasSuffix("]") && !$0.contains(" ")) }
+            // 저장된 행 줄에는 시각만 있어 배치 날짜를 날짜 줄로 붙인다 (자정을 넘긴 배치는 하루 어긋날 수 있다)
+            let dated = [OntologyPrompt.dateLine(batch.startedAt, timeZone: .current)] + rows
+            print("=== 배치 #\(id) (\(batch.rowCount)행, \(Date(timeIntervalSince1970: batch.startedAt).formatted(date: .abbreviated, time: .shortened))) ===")
+            let started = Date()
+            let result = try await client.callFunction(system: EventFinder.system,
+                                                       user: EventFinder.prompt(rowLines: dated, known: known, rejected: rejected, now: batch.startedAt, timeZone: .current),
+                                                       tool: EventFinder.tool)
+            let found = EventFinder.decode(result.arguments)
+            print("  \(String(format: "%.1f", Date().timeIntervalSince(started)))초, 토큰 \(result.promptTokens)+\(result.completionTokens)\(found.isEmpty ? ", 일정 없음" : "")")
+            for event in found {
+                let mark = event.wanted ? "제안" : "  뺌"
+                print("  \(mark) 행 \(event.row) | \(event.whose ?? "-") | \(event.date) \(event.startTime ?? "종일")\(event.endTime.map { "-\($0)" } ?? "") | \(event.title) | “\(event.evidence)”")
+            }
         }
 
     case "tasks":

@@ -19,7 +19,7 @@ window.V3D.chord = function (main, data, ui) {
   });
   // 행렬: 두 분야가 같이 쓴 자료 수. 대각선 = 그 분야만 쓴 자료 수
   // 분야마다 자료별로 쓴 업무 수(버블 크기, 확대 목록)
-  themes.forEach(th => { th.use = new Map(); th.tasks.forEach(t => Object.entries(t.items || {}).forEach(([k, arr]) => arr.forEach(it => { const key = keyOf(k, it); const u = th.use.get(key) || { key, k, name: typeof it === 'string' ? it : (it.name ?? it.title ?? String(it.id ?? '')), n: 0 }; u.n++; th.use.set(key, u); }))); });
+  themes.forEach(th => { th.use = new Map(); th.tasks.forEach(t => Object.entries(t.items || {}).forEach(([k, arr]) => arr.forEach(it => { const key = keyOf(k, it); const u = th.use.get(key) || { key, k, name: typeof it === 'string' ? it : (it.name ?? it.title ?? String(it.id ?? '')), n: 0, tids: [] }; u.n++; u.tids.push(t.id); th.use.set(key, u); }))); });
   const N = themes.length, M = themes.map(() => themes.map(() => 0));
   for (let i = 0; i < N; i++) for (let j = i + 1; j < N; j++) { let c = 0; themes[i].items.forEach(x => { if (themes[j].items.has(x)) c++; }); M[i][j] = M[j][i] = c; }
   themes.forEach((th, i) => { let solo = 0; th.items.forEach(x => { if (!themes.some((o, j) => j !== i && o.items.has(x))) solo++; }); M[i][i] = solo; });
@@ -84,6 +84,10 @@ window.V3D.chord = function (main, data, ui) {
     }).join('');
     side.scrollTop = 0;
   };
+  // 왼쪽 목록의 자료: 누르면 자료 상세, 우클릭은 메뉴
+  const sideItem = e => { const d = e.target.closest?.('[data-k]'); const u = d && emphTi != null ? themes[emphTi].use.get(d.dataset.k) : null; return u ? { item: u.k, name: u.name, tids: u.tids } : null; };
+  side.addEventListener('click', e => { const it = sideItem(e); if (it) ui.node?.(it); });
+  side.addEventListener('contextmenu', e => { const it = sideItem(e); if (it) ui.menu?.(it, e); });
   const markSide = key => {
     side.querySelectorAll('[data-on]').forEach(d => { d.removeAttribute('data-on'); d.style.fontWeight = ''; d.style.color = ''; });
     const d = [...side.querySelectorAll('[data-k]')].find(q => q.dataset.k === key); if (!d) return;
@@ -121,7 +125,7 @@ window.V3D.chord = function (main, data, ui) {
     const p = svg.createSVGPoint(); p.x = ev.clientX; p.y = ev.clientY;
     const q = p.matrixTransform(geo.g.getScreenCTM().inverse()), rr = Math.hypot(q.x, q.y), ang = Math.atan2(q.y, q.x) / RAD;
     const own = ev.target.closest?.('[data-ti]'), hit = own ? +own.getAttribute('data-ti') : rr < geo.outR + 90 ? themes.findIndex(th => ((ang - th.a0 + 1.5) % 360 + 360) % 360 <= th.a1 - th.a0 + 3) : -1;
-    if (hit < 0) setPin(null); else if (pin?.ti !== hit) setPin({ ti: hit });
+    if (hit < 0) setPin(null); else if (pin?.ti !== hit) { setPin({ ti: hit }); ui.node?.({ theme: themes[hit].id }); }   // 분야를 누르면 확대와 분야 상세
   });
 
   // 글자 폭 재기(이름표 자르기, 겹침 피하기)
@@ -269,7 +273,8 @@ window.V3D.chord = function (main, data, ui) {
         const r = B.r, b = el('circle', { cx: f1(x), cy: f1(y), r: f1(r), fill: data.kinds[u.k].color, opacity: op.toFixed(2) }, ag);
         const html2 = `<b>${u.name}</b><br><span style="color:#8C837C">${data.kinds[u.k].name}, ${th.name} 업무 ${u.n}개에서 씀</span>`;
         b.addEventListener('mouseenter', ev => { ev.stopPropagation(); showTip(ev, html2); }); b.addEventListener('mousemove', ev => showTip(ev, html2));
-        b.addEventListener('click', ev => { if (pin?.ti === i) { ev.stopPropagation(); markSide(u.key); } });
+        b.addEventListener('click', ev => { if (pin?.ti === i) { ev.stopPropagation(); markSide(u.key); ui.node?.({ item: u.k, name: u.name, tids: u.tids }); } });   // 자료 상세
+        b.addEventListener('contextmenu', ev => { ev.stopPropagation(); ui.menu?.({ item: u.k, name: u.name, tids: u.tids }, ev); });
         if (B && textIn > 0) {
           const ang = ((B.a % 360) + 360) % 360, flip = ang > 90 && ang < 270, [lx2, ly2] = P(BR + 10 + r + 5, B.a);
           const tl = el('text', { x: f1(lx2), y: f1(ly2), 'text-anchor': flip ? 'end' : 'start', 'dominant-baseline': 'middle', 'font-size': fsz, fill: '#4A3E37', opacity: textIn.toFixed(2), transform: `rotate(${f1(flip ? B.a + 180 : B.a)} ${f1(lx2)} ${f1(ly2)})`, 'pointer-events': 'none' }, ag);
@@ -297,6 +302,7 @@ window.V3D.chord = function (main, data, ui) {
       if (textOut > 0) names.push({ th, ag, mid, right, w: tw(th.name, 13.5, 700) + 6 + tw('업무 ' + th.n, 12) });
       const html = `<b>${th.name}</b> 업무 ${th.n}개, 자료 ${th.items.size}개`;
       ag.addEventListener('mouseenter', ev => { focus(i, null); showTip(ev, html); });
+      ag.addEventListener('contextmenu', ev => ui.menu?.({ theme: th.id }, ev));
       ag.addEventListener('mousemove', ev => showTip(ev, html));
       ag.addEventListener('mouseleave', hide);
       ag.style.cursor = 'pointer';

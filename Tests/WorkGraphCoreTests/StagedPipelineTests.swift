@@ -91,6 +91,23 @@ final class StageDecodeTests: XCTestCase {
         let describe = StagePrompt.describe(groups: groups, cards: [:], now: 1_000_000, timeZone: .current)
         XCTAssertTrue(describe.contains("## A | NEW | 카드 UI | goal: 카드를 만든다"))
     }
+
+    /// 주제 덜 만들기: 기존 업무면 이미 쓰는 주제를 보여 주고 같은 뜻이면 그 이름을 다시 쓰게 한다 (11/06: '그래프 시각화' 변형 6개)
+    func testDescribeShowsTopicsInUseForExistingTasks() {
+        let rows = Fixtures.frontendRows()
+        let groups = [StagePrompt.Group(ref: "t_sillog", isNew: false, title: "Sillog 개발", goal: nil, rows: Array(rows[0...1]), topics: ["그래프 시각화", "SwiftUI"])]
+        let describe = StagePrompt.describe(groups: groups, cards: [:], now: 1_000_000, timeZone: .current)
+        XCTAssertTrue(describe.contains("## t_sillog | existing | Sillog 개발 | topics in use: 그래프 시각화, SwiftUI"), describe)
+        XCTAssertTrue(StagePrompt.describeSystem.contains("topics in use"))
+        // ②가 기존 업무에 붙인 행이면 그 업무의 주제를 묶음에 싣는다
+        var state = JudgeState(input: JudgeInput(rows: rows, openTasks: [TaskDigest(id: "t_sillog", title: "Sillog 개발", taskType: nil, topics: ["그래프 시각화"], recentResources: [],
+                                                                                    lastActive: 0, resourceKeys: [], apps: [], recentSummaries: [], goal: nil)],
+                                                  cards: [:], now: 1_000_000, judge: nil))
+        state.verdicts[rows[0].row] = RowVerdict(kind: .work, reason: "")
+        state.assignment.tasks = [AssignmentPatch.TaskDef(ref: "A", match: "existing", id: "t_sillog")]
+        state.assignment.rows[rows[0].row] = TaskChoice(task: "A", reason: "")
+        XCTAssertEqual(StagedPipeline.taskGroups(state).first?.topics, ["그래프 시각화"])
+    }
 }
 
 enum StageReplies {
@@ -287,6 +304,7 @@ final class StagedBatcherTests: XCTestCase {
         var config = BatchConfig()
         config.pipeline = .staged
         config.themes = false
+        config.findEvents = false                           // 일정 찾기 호출은 EventFinderTests 에서
         return OntologyBatcher(db: db, llm: llm, config: config, home: "/Users/me", fileExists: { _ in false }, clock: { 450 })
     }
 

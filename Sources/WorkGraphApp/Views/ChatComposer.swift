@@ -12,7 +12,6 @@ struct ChatComposer: View {
     var onOpenPlugins: () -> Void = {}
     var onSent: () -> Void = {}
     var showsNotice: Bool = true
-    var showsSkills: Bool = false
 
     @EnvironmentObject private var state: AppState
     @State private var inputHeight: CGFloat = 38
@@ -29,7 +28,7 @@ struct ChatComposer: View {
         VStack(alignment: .leading, spacing: 0) {
             box
             HStack(spacing: 0) {
-                if showsSkills { skillChips.padding(.leading, 12) }
+                skillChips.padding(.leading, 12)
                 Spacer(minLength: 8)
                 if !modelName.isEmpty { connectionButton.padding(.trailing, 12) }
             }
@@ -143,12 +142,14 @@ struct ChatComposer: View {
         .help(help)
     }
 
-    private func chip(icon: String, text: String, help: String, remove: @escaping () -> Void) -> some View {
+    private func chip(icon: String, text: String, help: String, remove: (() -> Void)? = nil) -> some View {
         HStack(spacing: 5) {
             Image(systemName: icon).font(.system(size: 10))
             Text(text).font(Brand.suit(11)).lineLimit(1)
-            Button(action: remove) { Image(systemName: "xmark").font(.system(size: 8, weight: .semibold)) }
-                .buttonStyle(.plain).disabled(busy).help("빼기").accessibilityLabel("\(text) 빼기")
+            if let remove {
+                Button(action: remove) { Image(systemName: "xmark").font(.system(size: 8, weight: .semibold)) }
+                    .buttonStyle(.plain).disabled(busy).help("빼기").accessibilityLabel("\(text) 빼기")
+            }
         }
         .foregroundStyle(Brand.chipSelectedText)
         .padding(.horizontal, 9).frame(height: 22)
@@ -160,9 +161,11 @@ struct ChatComposer: View {
     private var chips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
-                if !chat.current.scope.focus.isEmpty || !chat.current.scope.useActivity {
+                if !chat.current.scope.useActivity {
+                    chip(icon: "diamond", text: "기록 안 씀", help: "참고할 기록 메뉴에서 범위를 바꿀 수 있어요")
+                } else if !chat.current.scope.focus.isEmpty {
                     chip(icon: "diamond", text: ChatFocusButton.label(chat.current.scope, choices: chat.focusChoices), help: "범위 빼기") {
-                        chat.current.scope.focus = []; chat.current.scope.useActivity = true
+                        chat.current.scope.focus = []
                     }
                 }
                 if chat.current.scope.useWeb {

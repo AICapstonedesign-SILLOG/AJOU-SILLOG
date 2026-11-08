@@ -7,6 +7,7 @@ import WorkGraphCore
 /// 설정 탭: 위쪽 글자 탭(일반, AI 연결, 활동 로그)과 그 아래 한 쪽. 일반은 권한, 수집, 개인정보와 저장 공간, 앱 실행을 한 쪽에 잇는다. Figma ST-01~06, ST-W1~W8.
 struct SettingsView: View {
     @EnvironmentObject private var state: AppState
+    @ObservedObject private var calendar = CalendarService.shared
     @State private var launchAtLogin = false
     @State private var launchStatusLoaded = false
     @State private var launchError: String?
@@ -83,6 +84,13 @@ struct SettingsView: View {
             }
             permissionTile("알림", icon: "bell", detail: "파일 정리 제안을 알려요. 꺼져 있어도 파일 구역에서 볼 수 있어요.", granted: !state.notificationsDenied) {
                 SuggestionNotifier.openSystemSettings()
+            }
+            if AppFeatures.calendarOn {
+                permissionTile("캘린더", icon: "calendar",
+                               detail: calendar.granted ? "오늘 일정을 보여 줘요. 등록할 캘린더: \(calendar.target.map { "\($0.title) · \($0.account)" } ?? CalendarService.calendarName) (캘린더 탭에서 바꿔요)" : "꺼져 있어 오늘 일정을 못 보여 주고 일정을 등록하지 못해요.",
+                               granted: calendar.granted) {
+                    Task { await calendar.requestAccess() }
+                }
             }
             }
             .padding(.top, 4)

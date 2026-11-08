@@ -147,7 +147,7 @@ public actor CollectorCoordinator {
         }
         status.idle = false
 
-        guard var snapshot = sampler.sample(enableWebAccessibility: settings.enableWebAccessibility) else { return }
+        guard var snapshot = sampleContext() else { return }
         let privacy = PrivacyFilter(excludedBundles: settings.excludedBundles)
         var redacted = false
         if privacy.isExcluded(bundle: snapshot.appBundle) {
@@ -160,7 +160,7 @@ public actor CollectorCoordinator {
         }
 
         if !snapshot.sameContext(as: last) {
-            let titleOnly = last.map { $0.pid == snapshot.pid && $0.windowFrame == snapshot.windowFrame && $0.appBundle == snapshot.appBundle && $0.url == snapshot.url && $0.docPath == snapshot.docPath } ?? false
+            let titleOnly = last.map { $0.pid == snapshot.pid && $0.windowFrame == snapshot.windowFrame && $0.screenWindowID == snapshot.screenWindowID && $0.appBundle == snapshot.appBundle && $0.url == snapshot.url && $0.docPath == snapshot.docPath } ?? false
             if titleOnly, now - lastObservationAt < settings.titleChangeMinInterval { return }
             let trigger = last?.appBundle == snapshot.appBundle ? "window_change" : "app_activate"
             guard let id = insert(snapshot, trigger: trigger, at: now) else { return }
@@ -216,9 +216,15 @@ public actor CollectorCoordinator {
                 text = text.isEmpty ? recognized : text + "\n" + recognized
             }
         }
+        text = ScreenText.trimmed(text, appBundle: snapshot.appBundle, appName: snapshot.appName)   // 편집기는 앞부분만
         guard isCurrent(snapshot), settings.captureText, !text.isEmpty,
               let textId = try? store.upsertText(text, source: source, at: Date().timeIntervalSince1970) else { return }
         try? store.attach(observationId: observationId, textId: textId, screenshotPath: nil)
+    }
+
+    private func sampleContext() -> ContextSnapshot? {
+        sampler.sample(enableWebAccessibility: settings.enableWebAccessibility,
+                       identifyScreenWindow: status.screenRecording && (settings.captureText || settings.captureScreenshots))
     }
 
     private func isCurrent(_ snapshot: ContextSnapshot) -> Bool {
@@ -226,7 +232,7 @@ public actor CollectorCoordinator {
         return !Task.isCancelled && status.running && !status.paused && !locked && !isIdle
             && !privacy.isExcluded(bundle: snapshot.appBundle) && !privacy.isPrivateWindow(title: snapshot.windowTitle)
             && snapshot.sameContext(as: last)
-            && snapshot.sameContext(as: sampler.sample(enableWebAccessibility: settings.enableWebAccessibility))
+            && snapshot.sameContext(as: sampleContext())
     }
 
     /// 화면이 거의 안 바뀌었으면 저장하지 않는다. OCR 용으로만 필요한 경우 이미지는 돌려주되 파일은 남기지 않을 수 있다.

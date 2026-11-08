@@ -19,7 +19,7 @@ enum PluginAuth {
     /// Raises: Keychain 접근 오류.
     static func isAvailable(_ id: String) throws -> Bool {
         switch id {
-        case "gmail", "drive": return try !configuration("google-client", environment: "WORKGRAPH_GOOGLE_CLIENT_ID").isEmpty
+        case "gmail", "drive", "gcal": return try !configuration("google-client", environment: "WORKGRAPH_GOOGLE_CLIENT_ID").isEmpty
         case "github": return try !configuration("github-client", environment: "WORKGRAPH_GITHUB_CLIENT_ID").isEmpty
         case "notion":
             return try !configuration("notion-client", environment: "WORKGRAPH_NOTION_CLIENT_ID").isEmpty &&
@@ -54,9 +54,10 @@ enum PluginAuth {
             guard let refresh = token.refreshToken else { throw ChatToolError.unavailable("\(id) 플러그인을 다시 연결하세요.") }
             let body: [String: String]
             let url: URL
-            if id == "gmail" || id == "drive" {
+            if googleIDs.contains(id) {
                 url = URL(string: "https://oauth2.googleapis.com/token")!
-                body = ["client_id": try configuration("google-client", environment: "WORKGRAPH_GOOGLE_CLIENT_ID"), "refresh_token": refresh, "grant_type": "refresh_token"]
+                body = googleSecretField().merging(["client_id": try configuration("google-client", environment: "WORKGRAPH_GOOGLE_CLIENT_ID"),
+                                                    "refresh_token": refresh, "grant_type": "refresh_token"]) { $1 }
             } else if id == "github" {
                 url = URL(string: "https://github.com/login/oauth/access_token")!
                 let secret = try configuration("github-secret", environment: "WORKGRAPH_GITHUB_CLIENT_SECRET")
@@ -85,7 +86,7 @@ enum PluginAuth {
     /// Returns: 없음. 한 번의 브라우저 승인으로 선택한 플러그인의 토큰을 저장한다.
     /// Raises: OAuth 거절·콜백·토큰 교환 오류.
     static func connectGoogle(_ ids: Set<String>, clientID: String) async throws {
-        let scopes = ids.sorted().map { $0 == "gmail" ? "https://www.googleapis.com/auth/gmail.readonly" : "https://www.googleapis.com/auth/drive.readonly" }
+        let scopes = googleScopes(ids)
         let verifier = randomURLSafe(32)
         let challenge = Data(SHA256.hash(data: Data(verifier.utf8))).base64URLEncoded()
         let state = randomURLSafe(16)
@@ -95,10 +96,33 @@ enum PluginAuth {
                            "access_type": "offline", "prompt": "consent"].map { URLQueryItem(name: $0.key, value: $0.value) }
         let code = try await LoopbackOAuth.receive(auth: auth.url!, state: state)
         let request = formRequest(URL(string: "https://oauth2.googleapis.com/token")!,
-                                  ["client_id": clientID, "code": code, "code_verifier": verifier,
-                                   "redirect_uri": callback, "grant_type": "authorization_code"])
+                                  googleSecretField().merging(["client_id": clientID, "code": code, "code_verifier": verifier,
+                                                               "redirect_uri": callback, "grant_type": "authorization_code"]) { $1 })
         let token = try await exchange(request)
         for id in ids { try save(token, id: id) }
+    }
+
+    /// 구글 로그인을 쓰는 플러그인: Gmail·Drive(채팅), 캘린더(gcal, 캘린더 탭)
+    static let googleIDs: Set<String> = ["gmail", "drive", "gcal"]
+
+    /// Args: ids는 연결할 구글 플러그인 ID이다.
+    /// Returns: 요청할 권한. 캘린더는 캘린더 목록 읽기와 일정 읽기·쓰기만.
+    /// Raises: 없음.
+    static func googleScopes(_ ids: Set<String>) -> [String] {
+        ids.sorted().flatMap { id -> [String] in
+            switch id {
+            case "gmail": ["https://www.googleapis.com/auth/gmail.readonly"]
+            case "drive": ["https://www.googleapis.com/auth/drive.readonly"]
+            case "gcal": ["https://www.googleapis.com/auth/calendar.calendarlist.readonly", "https://www.googleapis.com/auth/calendar.events"]
+            default: []
+            }
+        }
+    }
+
+    /// 구글 '데스크톱 앱' 클라이언트는 토큰을 바꿀 때 클라이언트 시크릿도 요구한다 (비밀은 아니다). 빌드에 넣었으면 같이 보낸다
+    private static func googleSecretField() -> [String: String] {
+        let secret = (try? configuration("google-secret", environment: "WORKGRAPH_GOOGLE_CLIENT_SECRET")) ?? ""
+        return secret.isEmpty ? [:] : ["client_secret": secret]
     }
 
     /// Args: clientID·clientSecret은 사용자가 등록한 Notion 공개 통합 정보이다.

@@ -306,6 +306,8 @@ public final class WGDatabase: @unchecked Sendable {
         ConsolidationStore.migrate(&migrator)
         RecordingStore.migrate(&migrator)
         ChatStore.migratePins(&migrator)
+        EventSuggestionStore.migrate(&migrator)
+        ReviewStore.migrate(&migrator)
         return migrator
     }
 }

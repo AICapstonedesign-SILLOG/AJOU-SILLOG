@@ -39,6 +39,12 @@ struct GraphWebView: NSViewRepresentable {
         if !open { context.coordinator.sentSel = nil }
     }
 
+    /// 그래프가 보낸 노드 (label 과 key 가 다 있어야 한다)
+    static func nodeRef(_ body: [String: Any]) -> NodeRef? {
+        guard let label = body["label"] as? String, let key = body["key"] as? String, !label.isEmpty, !key.isEmpty else { return nil }
+        return NodeRef(label: label, key: key)
+    }
+
     /// .app 번들이면 Contents/Resources/graph, `swift run` 이면 SwiftPM 리소스 번들.
     static func graphDirectory() -> URL? {
         if let bundled = Bundle.main.url(forResource: "graph", withExtension: nil) { return bundled }
@@ -60,6 +66,29 @@ struct GraphWebView: NSViewRepresentable {
             pushedVersion = version
             let json = MainActor.assumeIsolated { state.graphJSON() }
             webView.callAsyncJavaScript("window.WG.setGraph(JSON.parse(data))", arguments: ["data": json], in: nil, in: .page, completionHandler: nil)
+        }
+
+        /// 우클릭 메뉴: 마우스 자리에 [상세 보기] [지우기…]. 업무 종류 같은 클래스는 지우기를 끈다
+        @MainActor func showMenu(_ ref: NodeRef) {
+            guard let webView, let window = webView.window else { return }
+            let menu = NSMenu()
+            menu.autoenablesItems = false
+            let detail = NSMenuItem(title: "상세 보기", action: #selector(menuDetail(_:)), keyEquivalent: "")
+            let erase = NSMenuItem(title: "지우기…", action: #selector(menuErase(_:)), keyEquivalent: "")
+            for item in [detail, erase] { item.target = self; item.representedObject = [ref.label, ref.key] }
+            erase.isEnabled = NodeEraser.canErase(label: ref.label) && !state.erasing
+            menu.items = [detail, .separator(), erase]
+            menu.popUp(positioning: nil, at: webView.convert(window.mouseLocationOutsideOfEventStream, from: nil), in: webView)
+        }
+
+        @objc private func menuDetail(_ item: NSMenuItem) {
+            guard let parts = item.representedObject as? [String], parts.count == 2 else { return }
+            MainActor.assumeIsolated { state.openNodeDetail(NodeRef(label: parts[0], key: parts[1])) }
+        }
+
+        @objc private func menuErase(_ item: NSMenuItem) {
+            guard let parts = item.representedObject as? [String], parts.count == 2 else { return }
+            MainActor.assumeIsolated { state.askErase(NodeRef(label: parts[0], key: parts[1])) }
         }
 
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
@@ -89,6 +118,12 @@ struct GraphWebView: NSViewRepresentable {
             case "task":                                                    // 그래프에서 업무 누르기: 업무 드로어를 그 업무로 연다 (업무 상세는 드로어 하나)
                 guard let key = body["key"] as? String else { return }
                 Task { @MainActor in self.state.openTaskDetail(key: key) }
+            case "node":                                                    // 업무가 아닌 노드 누르기: 드로어에 그 노드 상세
+                guard let ref = GraphWebView.nodeRef(body) else { return }
+                Task { @MainActor in self.state.openNodeDetail(ref) }
+            case "nodeMenu":                                                // 노드 우클릭: [상세 보기] [지우기…]
+                guard let ref = GraphWebView.nodeRef(body) else { return }
+                Task { @MainActor in self.showMenu(ref) }
             default:
                 break
             }

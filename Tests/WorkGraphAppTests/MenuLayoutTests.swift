@@ -58,8 +58,8 @@ final class MenuLayoutTests: XCTestCase {
         TaskSummary(id: 2, key: "stats", title: "통계학 수업", taskType: nil, activeSeconds: 3000, lastActive: Date().timeIntervalSince1970 - 600, sessionCount: 1),
     ]
 
-    func testTheRailHasFourTabs() {
-        XCTAssertEqual(MainWindow.Tab.allCases.map(\.rawValue), ["그래프", "채팅", "기록 자료", "설정", "플러그인"])
+    func testTheRailContainsAllTabs() {
+        XCTAssertEqual(MainWindow.Tab.allCases.map(\.rawValue), ["그래프", "채팅", "기록 자료", "캘린더", "설정", "플러그인"])
     }
 
     // 업무 목록은 그래프 탭에만: 채팅·기록 자료·설정에서는 본문만
@@ -83,6 +83,7 @@ final class MenuLayoutTests: XCTestCase {
     func testTheTaskPanelShowsTheDetailOnlyWhenExpanded() {
         let open = text(of: TasksPanel().frame(maxWidth: .infinity, alignment: .leading)) { s in s.taskList = tasks; s.selectedTaskId = 1; s.taskDetailOpen = true }
         XCTAssertTrue(open.contains("작업시간"), "펼치면 고른 업무의 상세(작업 시간)가 보인다: \(open)")
+        XCTAssertTrue(open.contains("이업무지우기"), "상세 아래쪽에 지우기: \(open)")
         let closed = text(of: TasksPanel().frame(maxWidth: .infinity, alignment: .leading)) { s in s.taskList = tasks; s.selectedTaskId = 1; s.taskDetailOpen = false }
         XCTAssertTrue(closed.contains("Flask웹앱개발"), closed)
         XCTAssertFalse(closed.contains("작업시간"), "접으면 목록만: \(closed)")

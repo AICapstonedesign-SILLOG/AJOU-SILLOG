@@ -93,11 +93,13 @@ public struct TaskDigest: Codable, Equatable, Sendable {
     public let recentSummaries: [String]
     /// 이 업무가 무엇을 위한 것인지 (업무가 생길 때 LLM 이 적은 한 문장)
     public let goal: String?
+    /// 이 업무를 한 프로젝트 폴더 이름 (오래 일한 순). 업무 합치기가 같은 코드베이스인지 볼 때 쓴다
+    public let folders: [String]
 
     public init(id: String, title: String, taskType: String?, topics: [String], recentResources: [String], lastActive: Double,
-                resourceKeys: [String] = [], apps: [String] = [], recentSummaries: [String] = [], goal: String? = nil) {
+                resourceKeys: [String] = [], apps: [String] = [], recentSummaries: [String] = [], goal: String? = nil, folders: [String] = []) {
         self.id = id; self.title = title; self.taskType = taskType
         self.topics = topics; self.recentResources = recentResources; self.lastActive = lastActive
-        self.resourceKeys = resourceKeys; self.apps = apps; self.recentSummaries = recentSummaries; self.goal = goal
+        self.resourceKeys = resourceKeys; self.apps = apps; self.recentSummaries = recentSummaries; self.goal = goal; self.folders = folders
     }
 }

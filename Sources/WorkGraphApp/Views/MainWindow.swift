@@ -1,20 +1,27 @@
 import SwiftUI
 import WorkGraphCore
 
-/// 창 맨 왼쪽 세로 막대: 그래프, 채팅, 기록 자료가 위에, 설정과 계정 동그라미가 맨 아래. 탭마다 아이콘 아래 작은 글자
+/// 창 맨 왼쪽 세로 막대: 그래프, 채팅, 기록 자료, 캘린더, 설정이 한 줄로, 계정 동그라미가 맨 아래. 탭마다 아이콘 아래 작은 글자
 struct NavRail: View {
     static let width: CGFloat = 72
     @EnvironmentObject private var state: AppState
+    @ObservedObject private var calendar = CalendarService.shared
 
-    /// lucide 줄 아이콘 경로: share-2, message-circle, archive, settings
+    /// lucide 줄 아이콘 경로: share-2, message-circle, archive, calendar, settings
     private func icon(_ tab: MainWindow.Tab) -> String {
         switch tab {
         case .graph: RailIcon.graph
         case .chat: RailIcon.chat
         case .records: RailIcon.records
+        case .calendar: RailIcon.calendar
         case .settings: RailIcon.settings
         case .plugins: RailIcon.plugins
         }
+    }
+
+    /// 숫자 대신 점: 정리할 파일 제안, 등록할 일정 제안
+    private func hasDot(_ tab: MainWindow.Tab) -> Bool {
+        (tab == .records && state.pendingFileSuggestions > 0) || (tab == .calendar && !calendar.suggestions.isEmpty)
     }
 
     private func railTab(_ tab: MainWindow.Tab) -> some View {
@@ -34,7 +41,7 @@ struct NavRail: View {
             .background(RoundedRectangle(cornerRadius: 12).fill(on ? Color(hex: 0xF7F5F2) : .clear))   // 고른 탭 알약, 아이콘 줄보다 한 단계 밝게
             .hoverHighlight(cornerRadius: 12, active: !on)
             .overlay(alignment: .topTrailing) {
-                if tab == .records, state.pendingFileSuggestions > 0 { Circle().fill(Brand.sky).frame(width: 7, height: 7).offset(x: -17, y: 10) }   // 숫자 대신 점
+                if hasDot(tab) { Circle().fill(Brand.sky).frame(width: 7, height: 7).offset(x: -17, y: 10) }
             }
             .contentShape(Rectangle())
         }
@@ -44,7 +51,7 @@ struct NavRail: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            ForEach(MainWindow.Tab.allCases.filter { $0 != .plugins || state.selectedTab == .chat || state.selectedTab == .plugins }) { railTab($0) }   // 설정도 다른 탭과 한 줄에. 플러그인은 채팅에서만 보인다
+            ForEach(MainWindow.Tab.visible(selected: state.selectedTab)) { railTab($0) }   // 설정도 다른 탭과 한 줄에 (맨 아래로 내리지 않는다)
             Spacer(minLength: 0)
             AccountDot().padding(.top, 8)
         }
@@ -403,18 +410,24 @@ private struct HideWindowTitle: ViewModifier {
 
 struct MainWindow: View {
     enum Tab: String, CaseIterable, Identifiable {
-        case graph = "그래프", chat = "채팅", records = "기록 자료", settings = "설정", plugins = "플러그인"   // 업무는 그래프 옆 패널(TasksPanel), 파일·보관함·활동 로그는 기록 자료 안 구역
+        case graph = "그래프", chat = "채팅", records = "기록 자료", calendar = "캘린더", settings = "설정", plugins = "플러그인"   // 업무는 그래프 옆 패널(TasksPanel), 파일·보관함·활동 로그는 기록 자료 안 구역
         var id: String { rawValue }
+
+        /// 캘린더는 켜져 있을 때, 플러그인은 채팅과 맞춤 설정에서만 아이콘 줄에 보인다.
+        static func visible(calendar: Bool = AppFeatures.calendarOn, selected: Tab = .graph) -> [Tab] {
+            allCases.filter { (calendar || $0 != .calendar) && ($0 != .plugins || selected == .chat || selected == .plugins) }
+        }
     }
 
     @EnvironmentObject private var state: AppState
-    /// WORKGRAPH_TAB=chat|records|files|history|library|settings|activity 로 시작 탭을 고를 수 있다 (개발·스크린샷용).
+    /// WORKGRAPH_TAB=chat|records|files|history|library|calendar|settings|activity 로 시작 탭을 고를 수 있다 (개발·스크린샷용).
     static let initialTab: Tab = {
         switch ProcessInfo.processInfo.environment["WORKGRAPH_TAB"] {
         case "settings", "ai", "activity": return .settings
         case "chat": return .chat
         case "plugins", "skills": return .plugins
         case "records", "files", "history", "library": return .records
+        case "calendar": return AppFeatures.calendarOn ? .calendar : .graph
         default: return .graph                                   // 권한·로그인 안내는 온보딩이 맡는다
         }
     }()
@@ -461,6 +474,7 @@ struct MainWindow: View {
                                          pendingRecords: state.pendingCount, tidyNow: { Task { await state.runBatch(force: true) } })
                             }
                             case .records: RecordsView()
+                            case .calendar: CalendarView()
                             case .settings: SettingsView()
                             case .plugins: CustomizeView()
                             }
@@ -499,6 +513,8 @@ struct MainWindow: View {
         .toolbarBackground(Color(hex: 0xEFECE9), for: .windowToolbar)
         .modifier(HideWindowTitle())
         .modifier(WindowGlassBackground())
+        .modifier(EraseDialog())                                // 지우기 확인 창 (그래프 우클릭, 업무·노드 상세의 지우기)
+        .sheet(isPresented: $state.reviewSheetOpen) { ReviewSheet().environmentObject(state) }   // 정리 제안 (하루 한 번)
         .task { await state.bootstrap() }
         .onChange(of: state.phase) { old, phase in
             // 온보딩을 막 끝냈을 때만 그래프 탭으로. 앱 시작 시의 login → ready 전환은 탭을 건드리지 않는다.

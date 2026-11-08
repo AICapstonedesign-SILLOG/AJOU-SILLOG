@@ -12,16 +12,17 @@ ChatGPT 플러그인 연결은 별개입니다. 해당 권한이나 토큰을 Si
 
 현재 설치·승인 UI, 토큰 저장·갱신, 검색·읽기 코드가 구현되어 있습니다. 공급자 등록 정보가 없어 **실제 로그인·비공개 자료 조회는 아직 검증하지 못했습니다.** 설정이 없는 플러그인은 준비되지 않았다는 안내를 표시하고 설치 완료로 처리하지 않습니다.
 
-## Google: Gmail · Google Drive
+## Google: Gmail · Google Drive · Google Calendar
 
 - [데스크톱 앱용 OAuth 클라이언트](https://developers.google.com/identity/protocols/oauth2/native-app)를 등록합니다.
-- Gmail·Drive API를 사용할 수 있도록 프로젝트를 설정합니다. 현재 접근 범위는 Gmail·Drive 읽기 전용입니다.
-- 빌드할 때 `WORKGRAPH_GOOGLE_CLIENT_ID`를 설정합니다.
+- Gmail·Drive·Calendar API를 사용할 수 있도록 프로젝트를 설정합니다. Gmail·Drive는 읽기 전용, 캘린더(캘린더 탭의 [구글 계정 연결])는 캘린더 목록 읽기(`calendar.calendarlist.readonly`)와 일정 읽기·쓰기(`calendar.events`)를 요청합니다. 캘린더 권한은 구글이 민감한 권한으로 분류해, 앱 검수 전에는 OAuth 동의 화면에 등록한 테스트 사용자만 로그인할 수 있습니다.
+- 빌드할 때 `WORKGRAPH_GOOGLE_CLIENT_ID`를 설정합니다. 데스크톱 앱 클라이언트는 토큰 교환에 클라이언트 시크릿도 요구하므로 `WORKGRAPH_GOOGLE_CLIENT_SECRET`도 함께 넣습니다(설치형 앱의 시크릿은 비밀로 취급되지 않습니다).
+- 캘린더 탭에서 연결하면 맥 캘린더에 이미 같은 구글 계정이 있을 때 같은 이름의 캘린더는 맥 쪽만 보여 줍니다. [등록할 캘린더]에서 구글 캘린더를 고르면 [등록]이 구글 API로 바로 넣습니다.
 - 사용자는 필요한 Gmail·Drive 항목만 고르고 Google에서 승인합니다. 선택한 항목에 해당하는 권한을 요청합니다.
 - 로컬 콜백은 `http://127.0.0.1:8765/callback`입니다. 승인 중 앱이 실행되고 포트를 사용할 수 있어야 합니다.
 
 ```bash
-WORKGRAPH_GOOGLE_CLIENT_ID="등록한 클라이언트 ID" ./scripts/make-app.sh
+WORKGRAPH_GOOGLE_CLIENT_ID="등록한 클라이언트 ID" WORKGRAPH_GOOGLE_CLIENT_SECRET="클라이언트 시크릿" ./scripts/make-app.sh
 ```
 
 ## GitHub

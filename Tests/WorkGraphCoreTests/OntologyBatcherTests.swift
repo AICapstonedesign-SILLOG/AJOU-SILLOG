@@ -13,11 +13,12 @@ final class TestClock: @unchecked Sendable {
 }
 
 extension BatchConfig {
-    /// 한 번 호출 형식(assign_rows)으로 답하는 가짜 LLM 을 쓰는 테스트용. 테마 단계는 따로 테스트하므로 끈다
+    /// 한 번 호출 형식(assign_rows)으로 답하는 가짜 LLM 을 쓰는 테스트용. 테마 단계와 일정 찾기는 따로 테스트하므로 끈다
     static var singleCall: BatchConfig {
         var config = BatchConfig()
         config.pipeline = .single
         config.themes = false
+        config.findEvents = false
         return config
     }
 }
@@ -29,6 +30,7 @@ final class StubLLM: LLMClient, @unchecked Sendable {
     private(set) var lastUser = ""
     private(set) var lastSystem = ""
     private(set) var users: [String] = []
+    private(set) var systems: [String] = []
     let modelName = "stub-model"
 
     init(_ responses: [Result<String, LLMError>]) { self.responses = responses }
@@ -39,6 +41,7 @@ final class StubLLM: LLMClient, @unchecked Sendable {
             lastUser = user
             lastSystem = system
             users.append(user)
+            systems.append(system)
             return responses.isEmpty ? .failure(LLMError.transport("no stub")) : responses.removeFirst()
         }
         let json = try next.get()

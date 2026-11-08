@@ -9,8 +9,10 @@ public enum StagePrompt {
         public var title: String
         public var goal: String?
         public var rows: [ActivityRow]
-        public init(ref: String, isNew: Bool, title: String, goal: String?, rows: [ActivityRow]) {
-            self.ref = ref; self.isNew = isNew; self.title = title; self.goal = goal; self.rows = rows
+        /// 기존 업무가 이미 쓰는 주제 (같은 뜻이면 그 이름을 다시 쓰게)
+        public var topics: [String]
+        public init(ref: String, isNew: Bool, title: String, goal: String?, rows: [ActivityRow], topics: [String] = []) {
+            self.ref = ref; self.isNew = isNew; self.title = title; self.goal = goal; self.rows = rows; self.topics = topics
         }
     }
 
@@ -80,6 +82,7 @@ public enum StagePrompt {
        - "물리학 노트를 확인했다." → "물리학 3강 노트에서 열역학 제1법칙 예제를 읽었다."
        - "로그인 기능 작업을 확인했다." → "로그인 API의 토큰 만료 오류 수정을 AI에게 요청하고 관련 Stack Overflow 답변을 읽었다."
        Topics: what the work is ABOUT (a concept, technique, technology, course subject or problem domain). NOT the app, website or platform used, not the project name, no filler.
+       When the task has `topics in use`, reuse one of those names whenever it is the same concept, even if the rows word it differently (with "그래프 시각화" in use, write "그래프 시각화", not "3D 그래프 시각화" or "인터랙티브 그래프 시각화"). Add a new topic only for a different concept.
     3. problems: only when the rows show an error or blocker (build error, failed command, searching an error message). Set resolved_by_row to the row of the page that solved it when that is evident.
     4. later_items: requests or todos that arrived in these rows but were not handled.
 
@@ -109,6 +112,7 @@ public enum StagePrompt {
         for group in groups {
             var head = "## \(group.ref) | \(group.isNew ? "NEW" : "existing") | \(OntologyPrompt.clip(group.title, 90))"
             if let goal = group.goal { head += " | goal: \(OntologyPrompt.clip(goal, 140))" }
+            if !group.topics.isEmpty { head += " | topics in use: \(group.topics.map { OntologyPrompt.clip($0, 30) }.joined(separator: ", "))" }
             lines.append(head)
             lines += OntologyPrompt.rowLines(group.rows, cards: cards, timeZone: timeZone)
         }

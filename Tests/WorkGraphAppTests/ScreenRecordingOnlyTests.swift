@@ -27,11 +27,22 @@ final class ScreenRecordingOnlyTests: XCTestCase {
     func testBrowsersAreNotCapturedWithoutAWindowTitle() {
         let privacy = PrivacyFilter()
         XCTAssertFalse(privacy.mayCapture(bundle: "com.google.Chrome", windowTitle: nil))      // 기기 제어 없음: 시크릿 창인지 모른다
+        XCTAssertFalse(privacy.mayCapture(bundle: "com.google.Chrome.beta", windowTitle: nil))
+        XCTAssertFalse(privacy.mayCapture(bundle: "com.google.Chrome.dev", windowTitle: nil))
+        XCTAssertFalse(privacy.mayCapture(bundle: "com.google.chrome.for.testing", windowTitle: nil))
         XCTAssertFalse(privacy.mayCapture(bundle: "com.google.Chrome", windowTitle: ""))
         XCTAssertFalse(privacy.mayCapture(bundle: "com.google.Chrome", windowTitle: "Example Domain - Chrome (시크릿 모드)"))
         XCTAssertTrue(privacy.mayCapture(bundle: "com.google.Chrome", windowTitle: "Example Domain - Chrome"))
         XCTAssertTrue(privacy.mayCapture(bundle: "com.apple.TextEdit", windowTitle: nil))     // 브라우저가 아니면 맨 앞 창을 찍는다
         XCTAssertFalse(privacy.mayCapture(bundle: "com.apple.keychainaccess", windowTitle: nil))
+    }
+
+    func testAWindowSwitchChangesTheScreenOnlyContext() {
+        let before = ContextSnapshot(appBundle: "com.apple.TextEdit", appName: "TextEdit", windowTitle: nil,
+                                     url: nil, docPath: nil, pid: 7, screenWindowID: 5)
+        var after = before
+        after.screenWindowID = 6
+        XCTAssertFalse(after.sameContext(as: before))
     }
 
     func testSystemAuthenticationWindowsAreExcludedEvenWithAnOldSavedList() {

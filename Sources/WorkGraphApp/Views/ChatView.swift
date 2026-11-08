@@ -206,7 +206,7 @@ struct ChatView: View {
                     .frame(maxWidth: .infinity)
                 ChatComposer(chat: chat, library: library, modelName: modelName, openSettings: openSettings,
                              pendingRecords: pendingRecords, tidyNow: tidyNow, onOpenPlugins: { state.selectedTab = .plugins },
-                             showsNotice: false, showsSkills: true)
+                             showsNotice: false)
                     .overlay(alignment: .topTrailing) {             // Figma 1591:18788: 입력칸 오른쪽 위에 올라앉은 심볼
                         GazingMark(size: 72, smiling: !chat.draft.isEmpty).offset(x: -24, y: -63).allowsHitTesting(false)
                     }

@@ -119,8 +119,19 @@ public actor Consolidator {
         }
         if llmFailed { report.notes.append("정리용 AI 연결이 안 돼 일부 요약을 초안으로 두었어요") }
 
-        // 4. 원문 정리 (첫 정리 동의 뒤에만)
+        // 4. 원문 정리 (첫 정리 동의와 화면 글자 보관 기간을 확인한다)
         if prune {
+            do {
+                let calendar = ledger.calendar
+                let dropped = try await db.writer.write { conn in
+                    guard try ConsolidationStore.value(ConsolidationStore.Key.firstPruneConsentedAt, conn) != nil,
+                          let days = try RetentionPolicy.load(conn).screenTextDays else { return 0 }
+                    return try ScreenText.dropOffTask(conn, before: now - Double(days) * 86_400, calendar: calendar)
+                }
+                if dropped > 0 { report.notes.append("업무 외 화면 글자 \(dropped)개 지움") }
+            } catch {
+                report.notes.append("업무 외 화면 글자 지우기 실패: \(error)")
+            }
             let pruner = Pruner(db: db, ledger: ledger)
             do {
                 let plan = try pruner.plan(now: now, policy: policy)
