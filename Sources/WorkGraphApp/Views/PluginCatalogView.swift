@@ -1,6 +1,6 @@
 import SwiftUI
 
-private struct PluginEntry: Identifiable {
+struct PluginEntry: Identifiable {
     let id: String
     let name: String
     let summary: String
@@ -23,13 +23,14 @@ private struct PluginEntry: Identifiable {
     ]
 }
 
+/// 맞춤 설정의 플러그인 구역: 둘러보기 목록(검색, 설치됨 구역)과 플러그인 상세.
+/// 고른 플러그인과 연결 상태는 왼쪽 목록(CustomizeView)과 나눠 쓰므로 바인딩으로 받는다
 struct PluginCatalogView: View {
-    var onClose: () -> Void
     var onUseInChat: (String, String) -> Void
+    @Binding var selectedID: String?
+    @Binding var connected: Set<String>
 
     @State private var query = ""
-    @State private var selectedID: String?
-    @State private var connected: Set<String> = []
     @State private var googleSelection: Set<String> = []
     @State private var showGoogleInstall = false
     @State private var connecting = false
@@ -40,6 +41,7 @@ struct PluginCatalogView: View {
     private static let soft = Brand.paper
 
     private var selected: PluginEntry? { PluginEntry.all.first { $0.id == selectedID } }
+    private var searching: Bool { !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     private var filtered: [PluginEntry] {
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
         return text.isEmpty ? PluginEntry.all : PluginEntry.all.filter {
@@ -48,146 +50,186 @@ struct PluginCatalogView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            BrandPageHeader(title: "플러그인", detail: "외부 서비스를 연결해 채팅에서 내 자료를 활용해요.") {
-                Button { onClose() } label: {
-                    Image(systemName: "xmark").font(.system(size: 13)).foregroundStyle(Brand.tabText)
-                        .frame(width: 28, height: 28).contentShape(Rectangle())
-                }.buttonStyle(.plain).accessibilityLabel("닫기")
-            }
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    if let selected { detail(selected) } else { catalog }
-                }
-                .frame(maxWidth: 800, alignment: .leading)
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 32).padding(.vertical, 20)
-            }
+        Group { if let selected { detail(selected) } else { catalog } }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .background(.white)
-            HStack {
-                Spacer()
-                Button("완료") { onClose() }.buttonStyle(BrandButtonStyle())
-            }
-            .padding(.horizontal, 32).frame(height: 63)
-            .background(Self.soft)
-            .overlay(alignment: .top) { Rectangle().fill(Brand.line).frame(height: 1) }
-        }
-        .sheet(isPresented: $showGoogleInstall) { googleInstallSheet }
-        .alert("플러그인 연결", isPresented: $showNotice) {
-            Button("확인", role: .cancel) {}
-        } message: { Text(notice ?? "") }
-        .onAppear(perform: refresh)
+            .sheet(isPresented: $showGoogleInstall) { googleInstallSheet }
+            .alert("플러그인 연결", isPresented: $showNotice) {
+                Button("확인", role: .cancel) {}
+            } message: { Text(notice ?? "") }
+            .onAppear(perform: refresh)
     }
+
+    // MARK: 목록 (CH-13, 70, 72, 73)
 
     private var catalog: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass").font(.system(size: 12)).foregroundStyle(Brand.gray)
-                TextField("플러그인 검색", text: $query).textFieldStyle(.plain).font(Brand.suit(12)).foregroundStyle(Brand.text)
-            }.brandField().padding(.bottom, 8)
-            if !connected.isEmpty {
-                sectionLabel("설치됨")
-                ForEach(PluginEntry.all.filter { connected.contains($0.id) }) { row($0) }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("플러그인").font(Brand.suit(22, .bold)).foregroundStyle(Brand.ink)
+                        Text("외부 서비스를 연결해 채팅에서 내 자료를 활용해요.").font(Brand.suit(12)).foregroundStyle(Brand.gray)
+                    }
+                    Spacer(minLength: 16)
+                    searchField
+                }
+                if searching {
+                    section("검색 결과", filtered, empty: "맞는 플러그인이 없어요")
+                } else {
+                    let installed = PluginEntry.all.filter { connected.contains($0.id) }
+                    if !installed.isEmpty { section("설치됨", installed) }
+                    section("플러그인 둘러보기", PluginEntry.all.filter { !connected.contains($0.id) })
+                }
             }
-            sectionLabel(query.isEmpty ? "플러그인 둘러보기" : "검색 결과")
-            ForEach(filtered) { row($0) }
+            .padding(.horizontal, 32).padding(.top, 20).padding(.bottom, 24)
         }
     }
 
-    private func sectionLabel(_ text: String) -> some View {
-        Text(text).font(Brand.suit(11, .medium)).foregroundStyle(Brand.gray).padding(.top, 16).padding(.bottom, 4)
+    private var searchField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass").font(.system(size: 11)).foregroundStyle(Brand.gray)
+            TextField("플러그인 검색", text: $query).textFieldStyle(.plain).font(Brand.suit(12)).foregroundStyle(Brand.text)
+        }
+        .padding(.horizontal, 12).frame(width: 190, height: 30)
+        .overlay(Capsule().strokeBorder(Brand.line))
     }
 
-    /// Args: plugin은 목록에 표시할 서비스이다.
-    /// Returns: 아이콘, 이름, 요약, 연결 상태가 있는 한 줄. 누르면 상세로 이동한다.
-    /// Raises: 없음.
+    private func section(_ title: String, _ items: [PluginEntry], empty: String? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(title).font(Brand.suit(11.5)).foregroundStyle(Brand.tabText).padding(.top, 26).padding(.bottom, 16)
+            if items.isEmpty, let empty {
+                Text(empty).font(Brand.suit(12)).foregroundStyle(Brand.gray)
+            } else {
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 17, alignment: .top), GridItem(.flexible(), alignment: .top)], spacing: 26) {
+                    ForEach(items) { row($0) }
+                }
+            }
+        }
+    }
+
+    /// 아이콘, 이름, 요약, 연결 상태가 있는 한 줄. 누르면 상세로 이동한다.
     private func row(_ plugin: PluginEntry) -> some View {
         let on = connected.contains(plugin.id)
         return Button { selectedID = plugin.id } label: {
             HStack(spacing: 12) {
                 pluginIcon(plugin, size: 30)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(plugin.name).font(Brand.suit(12, .medium)).foregroundStyle(Brand.tabText)
+                    Text(plugin.name).font(Brand.suit(12, .medium)).foregroundStyle(Brand.ink)
                     Text(plugin.summary).font(Brand.suit(10)).foregroundStyle(Brand.gray)
                 }
                 Spacer(minLength: 8)
                 if on {
-                    Text("설치됨").font(Brand.suit(10, .medium)).foregroundStyle(Brand.gray)
-                        .padding(.horizontal, 5).padding(.vertical, 2)
-                        .background(RoundedRectangle(cornerRadius: 4).fill(Self.soft))
-                        .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(Brand.line))
+                    Text("설치됨").font(Brand.suit(10, .medium)).foregroundStyle(Brand.tabText)
                 } else {
-                    Text("연결").font(Brand.suit(11, .medium)).foregroundStyle(Brand.tabText)
+                    Text("연결").font(Brand.suit(11, .medium)).foregroundStyle(Brand.ink)
                         .padding(.horizontal, 12).frame(height: 30)
                         .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Brand.line))
                 }
             }
-            .padding(.vertical, 14).frame(maxWidth: .infinity, alignment: .leading)
-            .overlay(alignment: .bottom) { Rectangle().fill(Brand.line).frame(height: 1) }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
         }.buttonStyle(.plain)
     }
 
-    /// Args: plugin은 상세 화면에 표시할 서비스이다.
-    /// Returns: 설치 상태, 사용 예시와 계정 연결 동작이 있는 상세 화면.
-    /// Raises: 없음.
+    // MARK: 상세 (CH-25, 26, 37, 62)
+
     private func detail(_ plugin: PluginEntry) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Button { selectedID = nil } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: "chevron.left").font(.system(size: 10))
-                    Text("플러그인").font(Brand.suit(13))
-                }.foregroundStyle(Brand.gray)
-            }.buttonStyle(.plain)
-            HStack(alignment: .center, spacing: 16) {
-                pluginIcon(plugin, size: 60)
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(plugin.name).font(Brand.suit(22, .bold)).foregroundStyle(Brand.ink)
-                    Text(plugin.summary).font(Brand.suit(13)).foregroundStyle(Brand.gray)
-                }
-                Spacer()
-                if connected.contains(plugin.id) {
-                    Button("채팅에서 사용해 보기") { onUseInChat(plugin.id, plugin.examples[0]) }
-                        .buttonStyle(BrandButtonStyle(kind: .primary))
-                } else {
-                    Button(connecting ? "연결 중…" : "플러그인 설치") { install(plugin) }
-                        .buttonStyle(BrandButtonStyle(kind: .primary)).disabled(connecting)
-                }
-            }.padding(.top, 16)
-            Text(plugin.description).font(Brand.suit(14)).foregroundStyle(Brand.gray).padding(.top, 24)
-            Text("이렇게 활용할 수 있어요").font(Brand.suit(14, .medium)).foregroundStyle(Brand.ink).padding(.top, 28)
-            VStack(spacing: 8) {
-                ForEach(plugin.examples, id: \.self) { example in
-                    Button { if connected.contains(plugin.id) { onUseInChat(plugin.id, example) } else { install(plugin) } } label: {
-                        HStack(spacing: 12) {
-                            Text(example).font(Brand.suit(13)).foregroundStyle(Brand.ink).multilineTextAlignment(.leading)
-                            Spacer(minLength: 8)
-                            Image(systemName: "arrow.up.right").font(.system(size: 11)).foregroundStyle(Brand.gray)
-                        }.padding(.horizontal, 16).frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
-                            .background(Self.soft, in: RoundedRectangle(cornerRadius: 10))
-                            .contentShape(Rectangle())
-                    }.buttonStyle(.plain)
-                }
-            }.padding(.top, 12)
-            if let verificationCode, plugin.id == "github" {
-                Text("GitHub 승인 코드: \(verificationCode)")
-                    .font(.system(size: 14, design: .monospaced)).foregroundStyle(Brand.ink).textSelection(.enabled)
-                    .padding(.horizontal, 16).frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
-                    .background(Self.soft, in: RoundedRectangle(cornerRadius: 10)).padding(.top, 16)
-            }
-            if connected.contains(plugin.id) {
-                Rectangle().fill(Brand.line).frame(height: 1).padding(.top, 16)
+        let on = connected.contains(plugin.id)
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 8) {
-                    Button("다시 연결") { install(plugin) }.buttonStyle(BrandButtonStyle()).disabled(connecting)
-                    Button("연결 해제") { disconnect(plugin.id) }.buttonStyle(BrandButtonStyle())
-                }.padding(.top, 16)
+                    Button { selectedID = nil } label: { Text("플러그인").font(Brand.suit(12)).foregroundStyle(Brand.gray) }.buttonStyle(.plain)
+                    Text("›").font(Brand.suit(13)).foregroundStyle(Brand.gray)
+                    Text(plugin.name).font(Brand.suit(12, .medium)).foregroundStyle(Brand.ink)
+                }
+                .padding(.horizontal, 32).padding(.top, 19)
+                VStack(alignment: .leading, spacing: 0) {
+                    pluginIcon(plugin, size: 48).padding(.top, 21)
+                    HStack(spacing: 6) {
+                        Text(plugin.name).font(Brand.suit(22, .bold)).foregroundStyle(Brand.ink)
+                        Spacer()
+                        if on { moreMenu(plugin) }
+                        mainButton(plugin, on: on)
+                    }.padding(.top, 10)
+                    Text(plugin.summary).font(Brand.suit(13)).foregroundStyle(Brand.gray).padding(.top, 4)
+                    examplePanel(plugin, on: on).padding(.top, 15)
+                    Text(plugin.description).font(Brand.suit(13)).foregroundStyle(Brand.tabText).padding(.top, 18)
+                    if let verificationCode, plugin.id == "github" {
+                        Text("GitHub 승인 코드: \(verificationCode)")
+                            .font(.system(size: 14, design: .monospaced)).foregroundStyle(Brand.ink).textSelection(.enabled)
+                            .padding(.horizontal, 16).frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+                            .background(Self.soft, in: RoundedRectangle(cornerRadius: 10)).padding(.top, 16)
+                    }
+                    Text("정보").font(Brand.suit(14, .medium)).foregroundStyle(Brand.ink).padding(.top, 24).padding(.bottom, 8)
+                    Rectangle().fill(Brand.line).frame(height: 1)
+                    VStack(alignment: .leading, spacing: 10) {
+                        infoRow("권한", "읽기만 해요")
+                        infoRow("연결 정보", "이 Mac의 키체인에 보관해요")
+                        infoRow("제공", ["gmail", "drive"].contains(plugin.id) ? "Google" : plugin.name)
+                    }.padding(.top, 11)
+                    Text("질문과 조회한 자료는 연결한 AI로 전송돼요.").font(Brand.suit(11)).foregroundStyle(Brand.gray).padding(.top, 22)
+                }
+                .frame(maxWidth: 561, alignment: .leading).frame(maxWidth: .infinity)
+                .padding(.bottom, 32)
             }
         }
     }
 
-    /// Args: plugin은 아이콘을 표시할 서비스, size는 아이콘 영역의 한 변이다.
-    /// Returns: 앱에 포함된 서비스 공식 아이콘.
-    /// Raises: 없음.
+    private func infoRow(_ label: String, _ value: String) -> some View {
+        HStack(alignment: .top, spacing: 0) {
+            Text(label).font(Brand.suit(12)).foregroundStyle(Brand.gray).frame(width: 110, alignment: .leading)
+            Text(value).font(Brand.suit(12)).foregroundStyle(Brand.ink)
+        }
+    }
+
+    /// 주 단추: 설치 전 "플러그인 설치"(연결 중에는 "연결 중…"), 설치됨 "채팅에서 사용해 보기". 글자 폭 알약
+    private func mainButton(_ plugin: PluginEntry, on: Bool) -> some View {
+        Button { if on { onUseInChat(plugin.id, plugin.examples[0]) } else { install(plugin) } } label: {
+            Text(on ? "채팅에서 사용해 보기" : connecting ? "연결 중…" : "플러그인 설치")
+                .font(Brand.suit(12, .medium)).foregroundStyle(.white).fixedSize()
+                .padding(.horizontal, 14).frame(height: 28)
+                .background(Capsule().fill(Brand.accent))
+                .contentShape(Capsule())
+        }.buttonStyle(.plain).disabled(connecting)
+    }
+
+    /// 설치됨일 때만: 다시 연결, 연결 해제(빨강)
+    private func moreMenu(_ plugin: PluginEntry) -> some View {
+        Menu {
+            Button("다시 연결") { install(plugin) }
+            Button("연결 해제", role: .destructive) { disconnect(plugin.id) }
+        } label: {
+            HStack(spacing: 3) { ForEach(0..<3, id: \.self) { _ in Circle().fill(Color(hex: 0x4A4541)).frame(width: 3, height: 3) } }
+                .frame(width: 28, height: 28).background(Circle().fill(Color.black.opacity(0.04)))
+        }
+        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().disabled(connecting)
+        .accessibilityLabel("더보기")
+    }
+
+    /// 예시 질문 판: 새 대화 첫 화면과 같은 바탕에 흰 반투명 줄. 설치 전에 누르면 설치를 시작한다
+    private func examplePanel(_ plugin: PluginEntry, on: Bool) -> some View {
+        VStack(spacing: 12) {
+            ForEach(plugin.examples, id: \.self) { example in
+                Button { if on { onUseInChat(plugin.id, example) } else { install(plugin) } } label: {
+                    HStack(spacing: 12) {
+                        Text(plugin.name).font(Brand.suit(12, .medium)).foregroundStyle(Brand.ink)
+                        Text(example).font(Brand.suit(12)).foregroundStyle(Brand.ink).lineLimit(1)
+                        Spacer(minLength: 8)
+                        Image(systemName: "arrow.right").font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
+                            .frame(width: 24, height: 24).background(Circle().fill(Brand.pillFill))
+                    }
+                    .padding(.horizontal, 12).frame(height: 44)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(.white.opacity(0.78)))
+                    .contentShape(Rectangle())
+                }.buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 48).padding(.top, 26).frame(maxWidth: .infinity, minHeight: 160, alignment: .top)
+        .background(ChatStartBackground())
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+    }
+
+    /// 앱에 포함된 서비스 공식 아이콘.
     private func pluginIcon(_ plugin: PluginEntry, size: CGFloat) -> some View {
         let url = Bundle.main.url(forResource: plugin.id, withExtension: "png", subdirectory: "PluginIcons")
             ?? Bundle.module.url(forResource: plugin.id, withExtension: "png", subdirectory: "PluginIcons")

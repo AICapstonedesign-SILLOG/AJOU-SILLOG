@@ -195,7 +195,7 @@ final class ChatTests: XCTestCase {
         XCTAssertEqual(Set(try ChatSkill.load().map(\.id)), ["writing", "research", "planning", "learning", "content", "automation"])
         let model = ScriptedChatModel()
         let runner = ChatRunner(client: model, tools: ChatTools(db: try .inMemory(), scope: .init()))
-        let result = try await runner.run(history: [.init(conversationID: "test", role: "user", text: "문서를 작성해줘")], skillID: "writing") { _ in }
+        let result = try await runner.run(history: [.init(conversationID: "test", role: "user", text: "문서를 작성해줘")], skillIDs: ["writing"]) { _ in }
         XCTAssertEqual(result.text, "완료")
         XCTAssertEqual(result.artifacts.first?.content, "# 결과")
         let calls = await model.requests

@@ -125,6 +125,11 @@ struct TasksView: View {
     static func fieldStats(_ tasks: [TaskSummary]) -> [FieldStat] {
         var counts: [String: Int] = [:]
         for task in tasks { counts[task.field ?? noField, default: 0] += 1 }
+        return fieldStats(counts: counts)
+    }
+
+    /// 분야 이름별 개수로 같은 규칙의 색과 순서를 만든다 (보관함 홈도 씀)
+    static func fieldStats(counts: [String: Int]) -> [FieldStat] {
         let named = counts.keys.filter { $0 != etc && $0 != noField }
             .sorted { a, b in
                 let known = (fieldColors[a] != nil, fieldColors[b] != nil)
@@ -188,6 +193,12 @@ struct TasksView: View {
         .background(Brand.paper)                                                         // 업무 목록 바탕: 아이콘 줄과 본문 사이 톤
     }
 
+    private func toggleField(_ name: String) {
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+            if fieldFilter.contains(name) { fieldFilter.remove(name) } else { fieldFilter.insert(name) }
+        }
+    }
+
     /// 분야 비율 막대: 분야마다 업무 수에 비례한 둥근 조각. 누르면 넣고 빼며(여러 개), 고른 분야는 아래로 늘어나 종류 나무가 펼쳐진다
     private func fieldBar(_ fields: [FieldStat], filter: Set<String>) -> some View {
         let sel = fields.filter { filter.contains($0.name) }
@@ -204,9 +215,7 @@ struct TasksView: View {
                     ForEach(Array(fields.enumerated()), id: \.element.id) { i, field in
                         let on = filter.contains(field.name)
                         Button {
-                            withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
-                                if on { fieldFilter.remove(field.name) } else { fieldFilter.insert(field.name) }
-                            }
+                            toggleField(field.name)
                         } label: {
                             RoundedRectangle(cornerRadius: 4).fill(field.color)
                                 .opacity(filter.isEmpty || on ? 1 : 0.28)
@@ -262,8 +271,11 @@ struct TasksView: View {
                 p.addCurve(to: CGPoint(x: b, y: -2), control1: CGPoint(x: cx + 7, y: 8), control2: CGPoint(x: b, y: 9))
                 p.closeSubpath()
             }.fill(field.color)
+                .onTapGesture { toggleField(field.name) }     // 늘어난 목이 막대를 덮으므로 여기를 눌러도 접힌다
             Circle().fill(field.color).frame(width: 22, height: 22).offset(x: cx - 11, y: 15)
+                .onTapGesture { toggleField(field.name) }
             Text("\(count)").font(Brand.suit(10, .bold)).foregroundStyle(.white).offset(x: cx - 11, y: 15).frame(width: 22, height: 22)
+                .allowsHitTesting(false)
             if !rows.isEmpty {
                 Path { p in
                     p.move(to: CGPoint(x: cx, y: 37))

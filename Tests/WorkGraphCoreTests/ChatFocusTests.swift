@@ -175,7 +175,7 @@ final class ChatFocusTests: XCTestCase {
         var scope = ChatScope(); scope.focus = [flask]
         let model = FocusCapturingModel()
         _ = try await ChatRunner(client: model, tools: ChatTools(db: db, scope: scope))
-            .run(history: [ConversationMessage(conversationID: "c", role: "user", text: "요약해 줘")], skillID: "general") { _ in }
+            .run(history: [ConversationMessage(conversationID: "c", role: "user", text: "요약해 줘")], skillIDs: []) { _ in }
         let system = await model.systems.first ?? ""
         XCTAssertTrue(system.contains("<focus>\nselected: 업무 Flask 웹앱 개발"), system.suffix(1200).description)
     }

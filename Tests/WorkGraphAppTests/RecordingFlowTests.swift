@@ -74,7 +74,7 @@ final class RecordingFlowTests: XCTestCase {
         let db = try WGDatabase.inMemory()
         addTeardownBlock { try? FileManager.default.removeItem(at: db.recordingsDirectory) }
         let recorder = FakeRecorder(seconds: recorderSeconds)
-        let textFolder = folder.appendingPathComponent("Sillog 녹음")
+        let textFolder = folder.appendingPathComponent("SILLOG 녹음")
         let state = AppState(preview: { s in
             s.phase = .ready
             s.recorder = recorder
@@ -106,7 +106,7 @@ final class RecordingFlowTests: XCTestCase {
             s.recordingPermissions = FakePermissions(problem: nil)
             s.liveTranscriptions = live
             s.recordingPipeline = RecordingPipeline(db: db, transcriber: LiveFirstTranscriber(live: live, fallback: whole), llm: NamingLLM(),
-                                                    textFolder: folder.appendingPathComponent("Sillog 녹음"))
+                                                    textFolder: folder.appendingPathComponent("SILLOG 녹음"))
         }, database: db)
         await state.startRecording()
         let id = try XCTUnwrap(state.activeRecording?.id)

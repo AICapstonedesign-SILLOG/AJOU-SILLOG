@@ -148,6 +148,25 @@ public struct LibraryStore: Sendable {
     public func detach(_ itemID: String, conversationID: String) throws {
         try db.writer.write { try $0.execute(sql: "DELETE FROM library_conversation_sources WHERE conversation_id = ? AND item_id = ?", arguments: [conversationID, itemID]) }
     }
+    /// Args: 없음.
+    /// Returns: 대화에 연결된 자료 ID -> 그 대화 범위의 초점 목록(처음 초점이 있는 대화 것). 초점이 없으면 키가 없다. 쿼리 한 번.
+    /// Raises: DB 오류.
+    public func itemFocuses() throws -> [String: [ChatFocus]] {
+        struct Payload: Decodable { struct Scope: Decodable { var focuses: [ChatFocus]? }; var scope: Scope? }
+        return try db.writer.read { conn in
+            var found: [String: [ChatFocus]] = [:]
+            for row in try Row.fetchAll(conn, sql: """
+                SELECT s.item_id, c.payload FROM library_conversation_sources s
+                JOIN app_conversations c ON c.id = s.conversation_id ORDER BY c.updated_at DESC
+                """) {
+                let payload: String = row["payload"], item: String = row["item_id"]
+                guard found[item] == nil, let focuses = (try? JSONDecoder().decode(Payload.self, from: Data(payload.utf8)))?.scope?.focuses,
+                      !focuses.isEmpty else { continue }
+                found[item] = focuses
+            }
+            return found
+        }
+    }
     /// Args: itemID는 보관 자료이다.
     /// Returns: 자료가 공유된 프로젝트 ID.
     /// Raises: DB 오류.

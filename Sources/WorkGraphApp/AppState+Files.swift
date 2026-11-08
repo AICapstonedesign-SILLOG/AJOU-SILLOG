@@ -1,10 +1,28 @@
 import AppKit
 import Foundation
+import SwiftUI
 import WorkGraphCore
+
+struct FileField: Equatable { let name: String; let color: Color }
 
 /// 내려받은 파일의 정리 위치 제안: 감지 → 문맥 모으기 → 제안 → 알림, 그리고 사용자의 결정.
 extension AppState {
     var pendingFileSuggestions: Int { fileSuggestions.filter { $0.status == "pending" }.count }
+
+    /// 제안이 나온 때의 업무(context 의 task 키) → 그 업무의 분야(theme ?? 업무 종류 최상위)와 색. 메모리의 taskList 만 쓴다(조회 없음).
+    /// 못 찾으면 키에 없다 -> 화면에서 "분야 없음"
+    func fileFields(for rows: [FileSuggestion]) -> [Int64: FileField] {
+        let byKey = Dictionary(taskList.map { ($0.key, $0.field) }, uniquingKeysWith: { a, _ in a })
+        let colors = Dictionary(TasksView.fieldStats(taskList).map { ($0.name, $0.color) }, uniquingKeysWith: { a, _ in a })
+        var out: [Int64: FileField] = [:]
+        for row in rows {
+            guard let id = row.id, let data = row.context?.data(using: .utf8),
+                  let key = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["task"] as? String,
+                  let name = byKey[key] ?? nil else { continue }
+            out[id] = FileField(name: name, color: colors[name] ?? Brand.sub)
+        }
+        return out
+    }
 
     /// 파일 > 지난 기록 한 쪽의 줄 수
     static let fileHistoryPageSize = 20

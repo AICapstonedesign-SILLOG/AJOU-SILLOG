@@ -28,6 +28,8 @@ public struct ChatFocusChoices: Equatable, Sendable {
         /// 업무가 속한 분야 이름과 key (없으면 nil). 고르기 목록에서 분야 아래로 묶는다
         public var theme: String?
         public var themeKey: String?
+        /// 분야 이름: 분야(theme)가 있으면 그것, 없으면 업무 종류의 최상위 분류 (그래프, 업무 탭 분야 막대와 같은 기준)
+        public var field: String? = nil
         public var id: String { focus.key }
     }
 
@@ -79,12 +81,16 @@ extension ContextSearch {
                 ORDER BY last DESC, t.id DESC
                 """)
             var choices = ChatFocusChoices()
+            let tx = GraphTx(conn)
             for row in rows {
                 let id: Int64 = row["id"]
                 if let allowed = access.tasks, !allowed.contains(id) { continue }
                 let themeTitle: String? = row["theme_title"]
                 let themeKey: String? = row["theme_key"]
-                choices.tasks.append(.init(focus: ChatFocus(kind: .task, key: row["key"], title: row["title"]), theme: themeTitle, themeKey: themeKey))
+                var top = try tx.edges(from: id, type: EdgeType.instanceOf).first.flatMap { try tx.node(id: $0.dst) }
+                while let cur = top, let up = try tx.edges(from: cur.id, type: EdgeType.subclassOf).first.flatMap({ try tx.node(id: $0.dst) }), up.id != cur.id { top = up }
+                choices.tasks.append(.init(focus: ChatFocus(kind: .task, key: row["key"], title: row["title"]), theme: themeTitle, themeKey: themeKey,
+                                           field: themeTitle ?? top?.title))
                 guard let themeKey, let themeTitle else { continue }
                 if let index = choices.themes.firstIndex(where: { $0.focus.key == themeKey }) {
                     choices.themes[index].taskCount += 1

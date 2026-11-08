@@ -31,7 +31,7 @@ final class FileSuggestionCopyTests: XCTestCase {
         XCTAssertEqual(FileSuggestionCopy.recordingBody(fileName: "2026-10-10 자료구조 3주차 강의.md", folder: "/Users/me/Documents/학교/자료구조", home: home),
                        "2026-10-10 자료구조 3주차 강의.md\n→ 문서 › 학교 › 자료구조")
         XCTAssertEqual(FileSuggestionCopy.transcribedTitle, "녹음을 받아썼어요")
-        XCTAssertEqual(FileSuggestionCopy.transcribedBody(fileName: "2026-10-10 회의.md", folder: "/Users/me/Documents/Sillog 녹음", home: home),
-                       "'2026-10-10 회의.md'를 문서 / Sillog 녹음 폴더에 저장했어요.")
+        XCTAssertEqual(FileSuggestionCopy.transcribedBody(fileName: "2026-10-10 회의.md", folder: "/Users/me/Documents/SILLOG 녹음", home: home),
+                       "'2026-10-10 회의.md'를 문서 / SILLOG 녹음 폴더에 저장했어요.")
     }
 }

@@ -48,7 +48,7 @@ final class RecordingPipelineTests: XCTestCase {
 
     override func tearDown() { try? FileManager.default.removeItem(at: folder) }
 
-    private var textFolder: URL { folder.appendingPathComponent("Sillog 녹음") }
+    private var textFolder: URL { folder.appendingPathComponent("SILLOG 녹음") }
 
     private func pipeline(_ transcriber: FakeTranscriber, _ llm: StubLLM) -> RecordingPipeline {
         RecordingPipeline(db: db, transcriber: transcriber, llm: llm, textFolder: textFolder, timeZone: seoul, clock: { 5_000 })

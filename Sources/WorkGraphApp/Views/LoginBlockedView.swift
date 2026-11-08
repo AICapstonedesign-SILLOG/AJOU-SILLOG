@@ -49,7 +49,7 @@ struct LoginBlockedView: View {
 
     private var brand: some View {
         VStack(spacing: 0) {
-            Image(nsImage: NSApp.applicationIconImage).resizable().scaledToFit().frame(width: 78, height: 78)
+            Image(nsImage: Brand.iconMatte ?? NSApp.applicationIconImage).resizable().scaledToFit().frame(width: 78, height: 78)
             if let mark = Brand.wordmark {
                 Image(nsImage: mark).resizable().scaledToFit().frame(height: 27).padding(.top, 33).accessibilityLabel("SILLOG")
             }

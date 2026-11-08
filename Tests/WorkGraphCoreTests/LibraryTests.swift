@@ -129,7 +129,7 @@ final class LibraryTests: XCTestCase {
         let fresh = try conversation(db, project: project)
         let request = ConversationMessage(conversationID: fresh.id, role: "user", text: "보고서를 이어서 작성해줘")
         let client = ProjectContextClient()
-        let result = try await ChatRunner(client: client, tools: ChatTools(db: db, scope: projects.scope(for: fresh))).run(history: [request], skillID: "general", project: project) { _ in }
+        let result = try await ChatRunner(client: client, tools: ChatTools(db: db, scope: projects.scope(for: fresh))).run(history: [request], skillIDs: [], project: project) { _ in }
         let system = await client.system
         XCTAssertTrue(system.contains(project.instructions))
         XCTAssertTrue(system.contains("조사 기간은 두 달"))

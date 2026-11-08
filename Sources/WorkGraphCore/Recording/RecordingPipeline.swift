@@ -65,9 +65,9 @@ public struct RecordingPipeline: Sendable {
         self.textFolder = textFolder; self.timeZone = timeZone; self.clock = clock
     }
 
-    /// 받아쓴 글을 두는 기본 폴더: ~/Documents/Sillog 녹음
+    /// 받아쓴 글을 두는 기본 폴더: ~/Documents/SILLOG 녹음
     public static func defaultTextFolder(home: String) -> URL {
-        URL(fileURLWithPath: home).appendingPathComponent("Documents", isDirectory: true).appendingPathComponent("Sillog 녹음", isDirectory: true)
+        URL(fileURLWithPath: home).appendingPathComponent("Documents", isDirectory: true).appendingPathComponent("SILLOG 녹음", isDirectory: true)
     }
 
     /// 실패한 녹음을 다시 받아쓰게 되돌린다. duration: 다시 잰 녹음 길이 (앱이 꺼져 길이를 몰랐던 녹음)

@@ -303,7 +303,6 @@ public enum StagedPipeline {
             tasks[index].taskType = state.description.taskTypes[tasks[index].ref]
         }
         return AssignmentPatch(tasks: tasks, rows: rows, work: state.description.work,
-                               problems: state.description.problems, laterItems: state.description.laterItems,
-                               calendarEvents: state.description.calendarEvents)
+                               problems: state.description.problems, laterItems: state.description.laterItems)
     }
 }

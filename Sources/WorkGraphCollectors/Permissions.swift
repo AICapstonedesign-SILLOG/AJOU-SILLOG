@@ -12,7 +12,6 @@ public enum Permissions {
         case filesAndFolders = "Privacy_FilesAndFolders"
         case microphone = "Privacy_Microphone"
         case speechRecognition = "Privacy_SpeechRecognition"
-        case calendars = "Privacy_Calendars"
     }
 
     /// 시스템 설정에 보이는 손쉬운 사용(접근성) 권한 이름. macOS 27 은 '기기 제어 및 데이터 접근'으로 부른다

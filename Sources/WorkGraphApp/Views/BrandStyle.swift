@@ -45,8 +45,10 @@ enum Brand {
         return url.flatMap(NSImage.init(contentsOf:))
     }
     static let wordmark: NSImage? = brandImage("wordmark")
-    /// 앱 아이콘 (진한 먹색 원래 판, AppIcon.icns 와 같은 그림)
+    /// 브랜드 심볼 (시스템이 씌우는 회색 판 없음)
     static let iconMatte: NSImage? = brandImage("icon")
+    /// 눈을 지운 심볼. GazingMark 가 위에 눈을 그린다
+    static let iconBody: NSImage? = brandImage("icon_body")
     /// OpenAI 마크: 검은 한 색 판이라 template 로 칠해 쓴다
     static let openAIMark: NSImage? = brandImage("openai_mark")
     static let ajouEmblem: NSImage? = brandImage("ajou_emblem")
@@ -330,6 +332,8 @@ enum RailIcon {
     static let chat = "M7.9 20A9 9 0 1 0 4 16.1L2 22Z"
     static let records = "M3 3H21A1 1 0 0 1 22 4V7A1 1 0 0 1 21 8H3A1 1 0 0 1 2 7V4A1 1 0 0 1 3 3ZM4 8V19A2 2 0 0 0 6 21H18A2 2 0 0 0 20 19V8M10 12H14"
     static let settings = "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2ZM15 12a3 3 0 1 1-6 0a3 3 0 1 1 6 0Z"
+    static let plugins = "M16 12a4 4 0 1 1-8 0a4 4 0 1 1 8 0ZM16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"   // lucide at-sign (플러그인 탭, Figma 851:329)
+    static let skill = "M9.94 15.5A2 2 0 0 0 8.5 14.06L2.37 12.48a.5.5 0 0 1 0-.96L8.5 9.94A2 2 0 0 0 9.94 8.5l1.58-6.13a.5.5 0 0 1 .96 0L14.06 8.5A2 2 0 0 0 15.5 9.94l6.13 1.58a.5.5 0 0 1 0 .96L15.5 14.06a2 2 0 0 0-1.44 1.44l-1.58 6.13a.5.5 0 0 1-.96 0Z"   // lucide sparkle
     static let link = "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"
     static let refresh = "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8M21 3v5h-5M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16M8 16H3v5"
 }
@@ -418,4 +422,83 @@ private struct HideLegacyScroller: NSViewRepresentable {
 
 extension View {
     func thinScrollLight() -> some View { modifier(ThinScrollLight()) }
+}
+
+/// 브랜드 심볼. 창이 활성일 때 눈이 커서 쪽을 살짝 보고, 깜빡이고, 아래를 축으로 숨 쉬듯 흔들린다.
+/// smiling 이면 눈이 웃는 모양이 된다. 동작 줄이기를 켜면 움직이지 않는다
+struct GazingMark: View {
+    let size: CGFloat
+    var smiling = false
+    @Environment(\.controlActiveState) private var activeState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        if Brand.iconBody == nil {
+            if let icon = Brand.iconMatte { Image(nsImage: icon).resizable().scaledToFit().frame(width: size, height: size) }
+        } else if reduceMotion {
+            eyes(offset: .zero).frame(width: size, height: size)
+        } else {
+            GeometryReader { proxy in
+                TimelineView(.animation(minimumInterval: 1.0 / 30, paused: activeState != .key)) { context in
+                    let t = context.date.timeIntervalSinceReferenceDate
+                    eyes(offset: gaze(center: CGPoint(x: proxy.frame(in: .global).midX, y: proxy.frame(in: .global).midY)), openness: Self.openness(at: t))
+                        // 주기를 어긋나게 섞어 같은 움직임이 되풀이돼 보이지 않게 한다
+                        .scaleEffect(x: 1, y: 1 + 0.012 * sin(t * 2 * .pi / 5.3), anchor: .bottom)
+                        .rotationEffect(.degrees(1.6 * sin(t * 2 * .pi / 7.1) + 0.5 * sin(t * 2 * .pi / 3.1)), anchor: .bottom)
+                }
+            }
+            .frame(width: size, height: size)
+        }
+    }
+
+    /// 눈이 뜬 정도(1 뜸, 0.1 감음). 3.7초 칸마다 칸 안의 정해진 시각에 0.18초 깜빡인다
+    private static func openness(at t: TimeInterval) -> CGFloat {
+        let slot = 3.7, length = 0.18
+        let hash = abs(sin(floor(t / slot) * 12.9898) * 43758.5453)
+        let since = t.truncatingRemainder(dividingBy: slot) - (hash - floor(hash)) * (slot - length)
+        guard since >= 0, since < length else { return 1 }
+        return max(0.1, abs(since / (length / 2) - 1))
+    }
+
+    private func eyes(offset: CGSize, openness: CGFloat = 1) -> some View {
+        ZStack {
+            Image(nsImage: Brand.iconBody!).resizable().scaledToFit()
+            ForEach([0.404, 0.596], id: \.self) { x in
+                Group {
+                    if smiling {
+                        SmileArc().stroke(.white, style: StrokeStyle(lineWidth: size * 0.05, lineCap: .round))
+                            .frame(width: size * 0.13, height: size * 0.08)
+                    } else {
+                        Capsule().fill(.white).frame(width: size * 0.0703, height: size * 0.1914).scaleEffect(x: 1, y: openness)
+                    }
+                }
+                .transition(.opacity)
+                .position(x: size * x + offset.width, y: size * 0.66 + offset.height)
+            }
+        }
+        .animation(.spring(response: 0.25, dampingFraction: 0.8), value: offset)
+        .animation(.easeOut(duration: 0.15), value: smiling)
+    }
+
+    /// 창 좌표의 심볼 중심에서 커서까지의 방향으로 눈을 옮길 거리. 200pt 안에서는 가까울수록 덜 움직인다
+    private func gaze(center: CGPoint) -> CGSize {
+        guard let window = NSApp.keyWindow, let height = window.contentView?.bounds.height else { return .zero }
+        let origin = window.convertPoint(toScreen: NSPoint(x: center.x, y: height - center.y))
+        let mouse = NSEvent.mouseLocation
+        let dx = mouse.x - origin.x, dy = origin.y - mouse.y              // 화면 좌표는 y 가 위로 커진다
+        let distance = hypot(dx, dy)
+        guard distance > 0 else { return .zero }
+        let reach = size * 0.018 * min(1, distance / 200) / distance
+        return CGSize(width: dx * reach, height: dy * reach)
+    }
+}
+
+/// 웃는 눈: 위로 볼록한 호
+private struct SmileArc: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.maxY))
+        path.addQuadCurve(to: CGPoint(x: rect.maxX, y: rect.maxY), control: CGPoint(x: rect.midX, y: rect.minY - rect.height))
+        return path
+    }
 }

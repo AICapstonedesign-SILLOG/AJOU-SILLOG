@@ -12,13 +12,15 @@ struct ChatComposer: View {
     var onOpenPlugins: () -> Void = {}
     var onSent: () -> Void = {}
     var showsNotice: Bool = true
+    var showsSkills: Bool = false
 
+    @EnvironmentObject private var state: AppState
     @State private var inputHeight: CGFloat = 38
     @State private var showPlus = false
-    @State private var showSkills = false
-    @State private var showSources = false
+    @State private var showFocus = false
+    @State private var showPlugins = false
+    @State private var showConnect = false
     @State private var showLibraryPicker = false
-    @State private var sourceOptionsHeight: CGFloat = 552   // 참고할 자료 설정 내용 높이 (CH-31, 600까지만 키우고 넘치면 스크롤)
 
     /// 이 대화에 응답이 도는 중이면 자료 설정을 잠근다
     private var busy: Bool { chat.activeMessage?.conversationID == chat.current.id }
@@ -27,9 +29,9 @@ struct ChatComposer: View {
         VStack(alignment: .leading, spacing: 0) {
             box
             HStack(spacing: 0) {
-                ChatFocusButton(chat: chat).padding(.leading, 12)
+                if showsSkills { skillChips.padding(.leading, 12) }
                 Spacer(minLength: 8)
-                if !modelName.isEmpty { ChatModelMenu(name: modelName, fontSize: 11, openSettings: openSettings).padding(.trailing, 12) }
+                if !modelName.isEmpty { connectionButton.padding(.trailing, 12) }
             }
             .frame(height: 20).padding(.top, 8)
             if !chat.current.scope.focus.isEmpty, chat.current.scope.useActivity, pendingRecords > 0 {
@@ -60,9 +62,11 @@ struct ChatComposer: View {
         let paths = chat.current.scope.paths
         return VStack(alignment: .leading, spacing: 0) {
             if !attachments.isEmpty || !paths.isEmpty {
-                // CH-18: 첨부 칩은 입력 줄 위에 줄바꿈으로 놓이고 상자가 위로 커진다. 연결한 폴더에만 빼기(x), 파일은 참고할 자료 설정에서 연결 해제
+                // CH-18: 첨부 칩은 입력 줄 위에 줄바꿈으로 놓이고 상자가 위로 커진다. 모두 x 로 연결 해제
                 ChatChipFlow(spacing: 6) {
-                    ForEach(attachments) { item in attachmentChip(icon: "doc", text: item.title, help: item.title) }
+                    ForEach(attachments) { item in
+                        attachmentChip(icon: "doc", text: item.title, help: item.title) { library.detach(item, conversationID: chat.current.id) }
+                    }
                     ForEach(paths, id: \.self) { path in
                         attachmentChip(icon: "folder", text: URL(fileURLWithPath: path).lastPathComponent, help: path) {
                             chat.current.scope.paths.removeAll { $0 == path }
@@ -103,7 +107,7 @@ struct ChatComposer: View {
         .buttonStyle(.plain).disabled(busy || library.busy)
         .help("자료 추가").accessibilityLabel("자료 추가")
         .popover(isPresented: $showPlus, arrowEdge: .bottom) { plusMenu }
-        .background { Color.clear.popover(isPresented: $showSources, arrowEdge: .bottom) { sourceOptions } }
+        .background { Color.clear.popover(isPresented: $showFocus, arrowEdge: .bottom) { ChatFocusPicker(chat: chat) } }
     }
 
     private var sendButton: some View {
@@ -156,6 +160,11 @@ struct ChatComposer: View {
     private var chips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
+                if !chat.current.scope.focus.isEmpty || !chat.current.scope.useActivity {
+                    chip(icon: "diamond", text: ChatFocusButton.label(chat.current.scope, choices: chat.focusChoices), help: "범위 빼기") {
+                        chat.current.scope.focus = []; chat.current.scope.useActivity = true
+                    }
+                }
                 if chat.current.scope.useWeb {
                     chip(icon: "globe", text: "웹 검색", help: "웹 검색 끄기") { chat.current.scope.useWeb = false }
                 }
@@ -176,39 +185,119 @@ struct ChatComposer: View {
             MenuRow(icon: "archivebox", title: "보관함에서 선택") { showPlus = false; DispatchQueue.main.async { showLibraryPicker = true } }
             MenuRow(icon: "folder.badge.plus", title: "원본 파일과 폴더 연결") { showPlus = false; chat.connectFiles() }
             Rectangle().fill(Brand.line).frame(height: 1).padding(.vertical, 4)
-            MenuRow(icon: "sparkles", title: "스킬") { showSkills = true } trailing: {
-                Text(skillName).font(Brand.suit(11)).foregroundStyle(Brand.gray).lineLimit(1)
+            MenuRow(icon: "diamond", title: "참고할 기록") { showPlus = false; DispatchQueue.main.async { showFocus = true } } trailing: {
                 Image(systemName: "chevron.right").font(.system(size: 9)).foregroundStyle(Brand.gray)
             }
-            .popover(isPresented: $showSkills, arrowEdge: .trailing) { skillList }
             MenuRow(icon: "globe", title: "웹 검색") { chat.current.scope.useWeb.toggle() } trailing: {
                 WebSwitch(on: chat.current.scope.useWeb)
             }
-            Rectangle().fill(Brand.line).frame(height: 1).padding(.vertical, 4)
-            MenuRow(icon: "slider.horizontal.3", title: "참고할 자료 설정") {
-                showPlus = false; DispatchQueue.main.async { showSources = true }
+            MenuRow(icon: "puzzlepiece.extension", title: "플러그인") { showPlugins = true } trailing: {
+                Image(systemName: "chevron.right").font(.system(size: 9)).foregroundStyle(Brand.gray)
             }
+            .popover(isPresented: $showPlugins, arrowEdge: .trailing) { pluginMenu }
         }
         .padding(6).frame(width: 190)
     }
 
-    private var skillName: String {
-        guard chat.current.skillID != "general" else { return "자동 선택" }
-        return chat.skills.first(where: { $0.id == chat.current.skillID })?.title ?? "자동 선택"
+    /// CH-31, CH-71: 플러그인 스위치 넷과 둘러보기
+    private var pluginMenu: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            pluginRow("Gmail", "envelope", pluginBinding("gmail"))
+            pluginRow("Google Drive", "externaldrive", pluginBinding("drive"))
+            pluginRow("GitHub", "chevron.left.forwardslash.chevron.right", githubBinding())
+            pluginRow("Notion", "doc.text", pluginBinding("notion"))
+            Rectangle().fill(Brand.line).frame(height: 1).padding(.vertical, 4)
+            MenuRow(icon: "square.grid.2x2", title: "플러그인 둘러보기") { showPlugins = false; showPlus = false; onOpenPlugins() }
+        }
+        .padding(6).frame(width: 190)
     }
 
-    private var skillList: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            skillRow("자동 선택", on: chat.current.skillID == "general") { chat.current.skillID = "general" }
-            ForEach(chat.skills) { skill in
-                skillRow(skill.title, on: chat.current.skillID == skill.id) { chat.current.skillID = skill.id }
+    private func pluginRow(_ title: String, _ icon: String, _ on: Binding<Bool>) -> some View {
+        MenuRow(icon: icon, title: title) { on.wrappedValue.toggle() } trailing: { WebSwitch(on: on.wrappedValue) }
+    }
+
+    // MARK: 스킬 칩 (CH-01, CH-33)
+
+    private var skillChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(chat.skills) { skill in
+                    let on = chat.current.skillIDs.contains(skill.id)
+                    Button {
+                        if on { chat.current.skillIDs.removeAll { $0 == skill.id } } else { chat.current.skillIDs.append(skill.id) }
+                    } label: {
+                        Text(skill.title).font(Brand.suit(10)).lineLimit(1)
+                            .foregroundStyle(on ? Brand.chipSelectedText : Brand.tabText)
+                            .padding(.horizontal, 9).frame(height: 22)
+                            .background(on ? Brand.chipSelectedFill : ChatPalette.soft, in: Capsule())
+                            .overlay(Capsule().strokeBorder(on ? Brand.chipSelectedBorder : Brand.line))
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain).disabled(busy).accessibilityLabel("\(skill.title) \(on ? "끄기" : "켜기")")
+                }
             }
         }
-        .padding(6).frame(minWidth: 112)
+        .frame(height: 22)
     }
 
-    private func skillRow(_ title: String, on: Bool, action: @escaping () -> Void) -> some View {
-        MenuRow(icon: nil, title: title) { action(); showSkills = false; showPlus = false } trailing: {
+    // MARK: 연결과 모델 (CH-08)
+
+    private var connectHost: String { URL(string: state.settings.chatEndpoint.url)?.host?.lowercased() ?? "" }
+    private var connectLabel: String {
+        let provider = state.settings.effectiveChatProvider
+        if provider == "codex" {
+            if case .loggedIn(_, let plan, _) = state.codexStatus, let plan, !plan.isEmpty { return "ChatGPT \(plan.prefix(1).uppercased() + plan.dropFirst())" }
+            return "ChatGPT"
+        }
+        if provider == "ajou" { return "아주대 LLM API" }
+        return connectHost.contains("anthropic") ? "Claude API" : "API"
+    }
+
+    @ViewBuilder private func providerLogo(_ provider: String, claude: Bool = false) -> some View {
+        if provider == "codex", let mark = Brand.openAIMark {
+            Image(nsImage: mark).renderingMode(.template).resizable().scaledToFit().foregroundStyle(Color(hex: 0x4A3E37))
+        } else if provider == "ajou", let emblem = Brand.ajouEmblem {
+            Image(nsImage: emblem).resizable().scaledToFit().scaleEffect(14 / 13)
+        } else if claude {
+            SVGIcon(d: Brand.claudePath).fill(Color(hex: 0xD97757))
+        } else {
+            SVGIcon(d: RailIcon.link).stroke(Brand.tabText, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+        }
+    }
+
+    private var connectionButton: some View {
+        Button { showConnect = true } label: {
+            HStack(spacing: 6) {
+                providerLogo(state.settings.effectiveChatProvider, claude: connectHost.contains("anthropic")).frame(width: 13, height: 13)
+                Text(connectLabel).font(Brand.suit(11, .medium)).foregroundStyle(Color(hex: 0x4A3E37))
+                Rectangle().fill(Color(hex: 0xCFC8C1)).frame(width: 1, height: 10)
+                Text(modelName).font(Brand.suit(11)).foregroundStyle(Color(hex: 0x7A716B)).lineLimit(1)
+                Image(systemName: "chevron.up.chevron.down").font(.system(size: 8)).foregroundStyle(Brand.tabText)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).fixedSize().help("연결 방식 바꾸기")
+        .popover(isPresented: $showConnect, arrowEdge: .top) { connectMenu }
+    }
+
+    /// 방식을 고르는 곳은 설정 AI 연결이라, 줄을 누르면 그 방식을 고른 채 설정으로 간다
+    private var connectMenu: some View {
+        let current = state.settings.effectiveChatProvider
+        return VStack(alignment: .leading, spacing: 0) {
+            connectRow("ChatGPT 구독", "codex", on: current == "codex")
+            connectRow("아주대 LLM API", "ajou", on: current == "ajou")
+            connectRow("API", "openai", on: current != "codex" && current != "ajou")
+        }
+        .padding(6).frame(width: 190)
+    }
+
+    private func connectRow(_ title: String, _ provider: String, on: Bool) -> some View {
+        MenuRow(icon: nil, title: title) {
+            showConnect = false
+            state.settings.llmProvider = provider     // 설정의 연결 방식 메뉴와 같은 값
+            state.settings.chatProvider = provider
+            openSettings()
+        } trailing: {
             if on { Image(systemName: "checkmark").font(.system(size: 10, weight: .semibold)).foregroundStyle(Brand.tabText) }
         }
     }
@@ -263,78 +352,13 @@ struct ChatComposer: View {
         .font(Brand.suit(10)).foregroundStyle(Brand.gray)
     }
 
-    // MARK: 참고할 자료 설정
-
-    private var sourceOptions: some View {
-        ScrollView {
-        VStack(alignment: .leading, spacing: 13) {
-            Text("답변에 사용할 자료").font(Brand.suit(13, .medium)).foregroundStyle(Brand.ink)
-            Toggle("내 활동 기록", isOn: Binding(get: { chat.current.scope.useActivity },
-                                             set: { on in chat.current.scope.useActivity = on; if !on { chat.current.scope.focus = [] } }))
-            Toggle("웹 검색 허용", isOn: $chat.current.scope.useWeb)
-            Divider()
-            Text("플러그인").font(Brand.suit(13, .medium)).foregroundStyle(Brand.ink)
-            Toggle("Gmail", isOn: pluginBinding("gmail"))
-            Toggle("Google Drive", isOn: pluginBinding("drive"))
-            Toggle("GitHub", isOn: githubBinding())
-            Toggle("Notion", isOn: pluginBinding("notion"))
-            Divider()
-            HStack {
-                Text("보관 자료").font(Brand.suit(13, .medium)).foregroundStyle(Brand.ink)
-                Spacer()
-                Menu {
-                    Button("파일 업로드") { showSources = false; chat.uploadFiles() }
-                    Button("보관함에서 선택") { showSources = false; DispatchQueue.main.async { showLibraryPicker = true } }
-                } label: {
-                    HStack(spacing: 4) { Text("추가"); Image(systemName: "chevron.down").font(.system(size: 8)) }.sourcePill()
-                }.menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).disabled(library.busy).fixedSize()
-            }
-            ForEach(library.sources(conversationID: chat.current.id, projectID: chat.current.projectID)) { item in
-                HStack {
-                    Text(item.title).font(Brand.suit(10)).lineLimit(2)
-                    Spacer()
-                    Button("연결 해제") { library.detach(item, conversationID: chat.current.id) }.font(Brand.suit(10)).buttonStyle(.plain)
-                }
-            }
-            if library.busy { ProgressView().controlSize(.small) }
-            if let error = library.error { Text(error).font(Brand.suit(10)).foregroundStyle(.red) }
-            Divider()
-            HStack {
-                Text("원본 파일과 폴더 연결").font(Brand.suit(13, .medium)).foregroundStyle(Brand.ink)
-                Spacer()
-                Button { showSources = false; chat.connectFiles() } label: { Text("추가").sourcePill() }.buttonStyle(.plain)
-            }
-            if chat.current.scope.paths.isEmpty {
-                Text("연결된 자료가 없습니다.").font(Brand.suit(10)).foregroundStyle(Brand.gray)
-            } else {
-                ForEach(chat.current.scope.paths, id: \.self) { path in
-                    HStack(spacing: 8) {
-                        Image(systemName: "folder").foregroundStyle(Brand.gray)
-                        Text(path).font(Brand.suit(10)).lineLimit(2).truncationMode(.middle)
-                        Spacer(minLength: 0)
-                        Button { chat.current.scope.paths.removeAll { $0 == path } } label: { Image(systemName: "xmark") }
-                            .buttonStyle(.plain).help("연결 해제").accessibilityLabel("\(path) 연결 해제")
-                    }
-                }
-            }
-            Divider()
-            Text("질문·공통 지침·관련 과거 기록과 보관 자료 일부가 모델에 전달됩니다. 추가 원문은 모델이 조회할 때 전송됩니다. 원본 연결은 파일을 복사하지 않습니다.")
-                .font(Brand.suit(10)).foregroundStyle(Brand.gray)
-            Text("웹 검색은 Codex 또는 OpenAI API를 사용합니다. 플러그인 조회 대상은 선택한 서비스에 전송됩니다.")
-                .font(Brand.suit(10)).foregroundStyle(Brand.gray)
-            Button("플러그인 둘러보기") { showSources = false; onOpenPlugins() }.buttonStyle(.link)
-        }.font(Brand.suit(12)).foregroundStyle(Brand.tabText).padding(20)
-            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { sourceOptionsHeight = $0 }
-        }.frame(width: 380, height: min(sourceOptionsHeight, 600)).disabled(busy)
-    }
-
     /// Args: id는 대화에서 켜거나 끌 플러그인이다.
     /// Returns: 대화별 플러그인 선택 바인딩. 연결 안 된 플러그인을 켜면 플러그인 화면으로 간다.
     /// Raises: 없음.
     private func pluginBinding(_ id: String) -> Binding<Bool> {
         Binding(get: { chat.current.scope.plugins.contains(id) }, set: { enabled in
             if enabled {
-                guard (try? PluginAuth.isConnected(id)) == true else { showSources = false; onOpenPlugins(); return }
+                guard (try? PluginAuth.isConnected(id)) == true else { showPlugins = false; showPlus = false; onOpenPlugins(); return }
                 if !chat.current.scope.plugins.contains(id) { chat.current.scope.plugins.append(id) }
             } else { chat.current.scope.plugins.removeAll { $0 == id } }
         })
@@ -345,7 +369,7 @@ struct ChatComposer: View {
     /// Raises: 없음. 미연결 상태에서는 플러그인 화면으로 간다.
     private func githubBinding() -> Binding<Bool> {
         Binding(get: { chat.current.scope.useGitHub }, set: { enabled in
-            if enabled && (try? PluginAuth.isConnected("github")) != true { showSources = false; onOpenPlugins(); return }
+            if enabled && (try? PluginAuth.isConnected("github")) != true { showPlugins = false; showPlus = false; onOpenPlugins(); return }
             chat.current.scope.useGitHub = enabled
         })
     }
@@ -354,17 +378,6 @@ struct ChatComposer: View {
 extension ChatComposer.MenuRow where Trailing == EmptyView {
     init(icon: String?, title: String, action: @escaping () -> Void) {
         self.init(icon: icon, title: title, action: action) { EmptyView() }
-    }
-}
-
-/// 참고할 자료 설정 안의 '추가' 단추(CH-31): 글자 11, 높이 22, 흰 바탕에 1pt 테두리, 둥글기 4
-private extension View {
-    func sourcePill() -> some View {
-        font(Brand.suit(11)).foregroundStyle(Brand.ink)
-            .padding(.horizontal, 7).frame(height: 22)
-            .background(.white, in: RoundedRectangle(cornerRadius: 4))
-            .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(ChatPalette.inputLine))
-            .contentShape(Rectangle())
     }
 }
 
