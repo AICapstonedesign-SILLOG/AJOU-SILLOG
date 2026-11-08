@@ -9,15 +9,23 @@ public struct ScreenCapturer: Sendable {
     public init() {}
 
     public func capture(snapshot: ContextSnapshot, excluding privacy: PrivacyFilter, maxWidth: Int = 1600) async -> CGImage? {
-        guard CGPreflightScreenCaptureAccess(), let frame = snapshot.windowFrame,
-              !privacy.isExcluded(bundle: snapshot.appBundle), !privacy.isPrivateWindow(title: snapshot.windowTitle) else { return nil }
+        guard CGPreflightScreenCaptureAccess(), privacy.mayCapture(bundle: snapshot.appBundle, windowTitle: snapshot.windowTitle) else { return nil }
         do {
             let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-            let matches = content.windows.filter {
-                $0.owningApplication?.processID == snapshot.pid && $0.title == snapshot.windowTitle && $0.frame == frame
+            let window: SCWindow?
+            if let frame = snapshot.windowFrame {
+                // 접근성으로 읽은 창과 제목·위치가 같은 창 하나
+                let matches = content.windows.filter {
+                    $0.owningApplication?.processID == snapshot.pid && $0.title == snapshot.windowTitle && $0.frame == frame
+                }
+                window = matches.count == 1 ? matches.first : nil
+            } else {
+                // 기기 제어 권한이 없으면 창 정보가 없다. 창 목록에서 그 앱의 맨 앞 창을 창 번호로 찾는다
+                window = Self.frontWindowID(pid: snapshot.pid).flatMap { id in content.windows.first { $0.windowID == id } }
             }
             // 창을 하나로 특정하지 못하면 전체 화면으로 대체하지 않는다.
-            guard matches.count == 1, let window = matches.first else { return nil }
+            guard let window else { return nil }
+            let frame = window.frame
             let filter = SCContentFilter(desktopIndependentWindow: window)
             let config = SCStreamConfiguration()
             let scale = min(1.0, Double(maxWidth) / max(frame.width, 1))
@@ -28,6 +36,26 @@ public struct ScreenCapturer: Sendable {
         } catch {
             return nil
         }
+    }
+
+    /// 그 프로세스의 맨 앞 일반 창 번호. 창 목록은 앞에서 뒤 순서다
+    static func frontWindowID(pid: pid_t) -> CGWindowID? {
+        let infos = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]]
+        return frontWindowID(in: infos ?? [], pid: pid)
+    }
+
+    /// 메뉴·떠 있는 패널(층이 0이 아닌 창), 투명한 창, 아주 작은 창은 건너뛴다
+    static func frontWindowID(in infos: [[String: Any]], pid: pid_t) -> CGWindowID? {
+        for info in infos {
+            guard (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value == pid,
+                  (info[kCGWindowLayer as String] as? NSNumber)?.intValue == 0,
+                  ((info[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1) > 0,
+                  let bounds = info[kCGWindowBounds as String] as? [String: Any],
+                  let rect = CGRect(dictionaryRepresentation: bounds as CFDictionary), rect.width >= 100, rect.height >= 60,
+                  let number = info[kCGWindowNumber as String] as? NSNumber else { continue }
+            return number.uint32Value
+        }
+        return nil
     }
 
     @discardableResult

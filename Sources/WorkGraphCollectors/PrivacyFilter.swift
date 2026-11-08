@@ -9,6 +9,13 @@ public struct PrivacyFilter: Sendable {
         "com.apple.loginwindow", "com.apple.screencaptureui", "com.apple.ScreenSaver.Engine",
     ]
 
+    /// 설정의 제외 목록과 상관없이 늘 뺀다: 시스템 인증 창 (Touch ID 확인 coreautha, 암호 확인 SecurityAgent).
+    /// 키체인 접근 같은 제외 앱을 열 때 뜨는 창이라, 목록에 없으면 안내 문구와 화면이 기록되고 전송된다.
+    /// 저장된 설정에는 예전 기본 목록이 남아 있으므로 기본 목록이 아니라 여기에 둔다.
+    public static let alwaysExcludedBundles: Set<String> = [
+        "com.apple.LocalAuthentication.UIAgent", "com.apple.SecurityAgent",
+    ]
+
     /// 시크릿/프라이빗 창 제목 표식. "private" 단독은 오탐이 많아 넣지 않는다 ("Private API docs" 등).
     static let privateTitleHints = [
         "incognito", "inprivate", "private browsing", "private window", "private mode", "- private", "(private)",
@@ -25,7 +32,7 @@ public struct PrivacyFilter: Sendable {
     }
 
     public func isExcluded(bundle: String) -> Bool {
-        excludedBundles.contains(bundle) || bundle == Self.selfBundle
+        excludedBundles.contains(bundle) || Self.alwaysExcludedBundles.contains(bundle) || bundle == Self.selfBundle
     }
 
     /// 기본 제외 목록의 표시 이름 (설치되지 않은 앱도 이름은 보여주기 위해)
@@ -39,5 +46,12 @@ public struct PrivacyFilter: Sendable {
     public func isPrivateWindow(title: String?) -> Bool {
         guard let lower = title?.lowercased(), !lower.isEmpty else { return false }
         return Self.privateTitleHints.contains { lower.contains($0) }
+    }
+
+    /// 이 창을 찍고 OCR 해도 되는지. 비공개 창은 접근성으로 읽은 창 제목으로만 가릴 수 있어서,
+    /// 제목이 없을 때(기기 제어 권한 없음) 브라우저는 찍지 않는다. 창 목록의 이름에는 시크릿 표식이 없다.
+    public func mayCapture(bundle: String, windowTitle: String?) -> Bool {
+        guard !isExcluded(bundle: bundle), !isPrivateWindow(title: windowTitle) else { return false }
+        return !(windowTitle ?? "").isEmpty || !BrowserURL.isBrowser(bundle)
     }
 }

@@ -70,14 +70,14 @@ struct SettingsView: View {
     private var permissions: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top, spacing: 12) {
-            permissionTile("손쉬운 사용", icon: "hand.raised",
-                           detail: state.status.accessibility ? "창 제목, 주소, 문서 경로, 화면 텍스트를 읽어요." : "꺼져 있어 지금은 앱 이름만 기록하고 있어요.",
+            permissionTile(Permissions.accessibilityName, icon: "hand.raised",
+                           detail: accessibilityDetail,
                            granted: state.status.accessibility) {
                 _ = Permissions.accessibility(prompt: true)
                 Permissions.openSettings(.accessibility)
             }
             permissionTile("화면 기록", icon: "camera.viewfinder",
-                           detail: state.status.screenRecording ? "스크린샷을 남기고, 글자를 읽을 수 없는 화면은 OCR로 읽어요." : "꺼져 있어 스크린샷과 화면 카드를 만들지 못해요.",
+                           detail: screenRecordingDetail,
                            granted: state.status.screenRecording) {
                 Permissions.requestScreenRecording()
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { Permissions.openSettings(.screenRecording) }
@@ -94,6 +94,19 @@ struct SettingsView: View {
             .padding(.top, 4)
             InfoLine("화면 기록은 허용한 뒤 앱을 다시 실행해 주세요.")
         }
+    }
+
+    /// 두 권한의 조합마다 실제로 남는 것을 적는다 (TC-02 ⑤)
+    private var accessibilityDetail: String {
+        if state.status.accessibility { return "창 제목, 주소, 문서 경로, 화면 텍스트를 읽어요." }
+        return state.status.screenRecording ? "꺼져 있어 창 제목·주소·문서 경로는 남지 않아요. 화면 글자는 스크린샷에서 OCR로 읽어요."
+                                            : "꺼져 있어 지금은 앱 이름만 기록하고 있어요."
+    }
+
+    private var screenRecordingDetail: String {
+        guard state.status.screenRecording else { return "꺼져 있어 스크린샷과 화면 카드를 만들지 못해요." }
+        return state.status.accessibility ? "스크린샷을 남기고, 글자를 읽을 수 없는 화면은 OCR로 읽어요."
+                                          : "맨 앞 창을 찍고 글자를 OCR로 읽어요. 비공개 창을 가릴 수 없어 브라우저는 찍지 않아요."
     }
 
     /// 권한 하나를 한눈에: 이름, 허용 상태(아이콘과 글), 하는 일 또는 꺼졌을 때 못 하는 일, 허용 단추

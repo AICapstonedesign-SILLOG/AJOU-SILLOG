@@ -486,7 +486,7 @@ struct OnboardingSheet: View {
         return VStack(spacing: 0) {
             heading("한 번에 허용해요", "필요한 권한을 한 화면에서 모두 켜요.")
             HStack(spacing: 16) {
-                bigPermission(title: "손쉬운 사용", reads: "창 제목, 주소, 문서 경로를 읽어요", warn: "켜지 않으면 앱 이름만 남아요",
+                bigPermission(title: Permissions.accessibilityName, reads: "창 제목, 주소, 문서 경로를 읽어요", warn: "켜지 않으면 창 제목·주소·문서 경로가 남지 않아요",
                               icon: "perm_acc", granted: grants.accessibility) { requestAccessibility() }
                 bigPermission(title: "화면 기록", reads: "화면에 있던 글자를 읽어요", warn: "켜지 않으면 화면 내용과 스크린샷을 남기지 못해요",
                               icon: "perm_screen", granted: grants.screenRecording) { requestScreenRecording() }
@@ -503,7 +503,7 @@ struct OnboardingSheet: View {
                 smallPermission(.calendar, icon: "", symbol: "calendar", title: "캘린더", detail: "오늘 일정을 보고\n제안을 등록해요")
                 smallPermission(.loginItem, icon: "perm_login", title: "로그인할 때 열기", detail: "켜 두면\n빠짐없이 기록해요")
             }
-            Text("손쉬운 사용과 화면 기록은 시스템 설정에서 켜요. 화면 기록은 켠 뒤 앱을 다시 실행해야 해요.")
+            Text("\(Permissions.accessibilityName)과 화면 기록은 시스템 설정에서 켜요. 화면 기록은 켠 뒤 앱을 다시 실행해야 해요.")
                 .font(Brand.suit(13)).foregroundStyle(Brand.gray).padding(.top, 26)
         }
         .frame(maxWidth: 1068)
