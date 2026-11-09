@@ -20,6 +20,67 @@ private actor ProjectTestClient: LLMClient {
 }
 
 final class ProjectTests: XCTestCase {
+    func testStoredDuplicateSuggestionsCombineItemsAndAcceptTogether() throws {
+        let db = try WGDatabase.inMemory(), store = ProjectStore(db)
+        let project = ChatProject(title: "보고서", goal: "공동 작성")
+        try store.save(project)
+        _ = try task(db); _ = try conversation(db)
+        let items = try store.items()
+        let first = ProjectProposal(projectID: project.id, title: project.title, goal: project.goal, reason: "조사", items: [items[0]])
+        let second = ProjectProposal(projectID: project.id, title: "다른 표시 제목", goal: project.goal, reason: "검토", items: items)
+        try db.writer.write { conn in
+            try ProjectStore.save(first, conn); try ProjectStore.save(second, conn)
+        }
+        let grouped = try XCTUnwrap(store.proposals().first)
+        XCTAssertEqual(try store.proposals().count, 1)
+        XCTAssertEqual(grouped.items.count, 2)
+        XCTAssertTrue(grouped.reason.contains("조사")); XCTAssertTrue(grouped.reason.contains("검토"))
+        _ = try store.accept(grouped.id, title: grouped.title)
+        XCTAssertEqual(Set(try store.items().compactMap(\.projectID)), [project.id])
+        XCTAssertTrue(try db.writer.read { try ProjectStore.proposals($0).isEmpty })
+    }
+
+    func testSameTitleNewSuggestionsGroupAndDismissTogether() throws {
+        let db = try WGDatabase.inMemory(), store = ProjectStore(db)
+        _ = try task(db); _ = try conversation(db)
+        let items = try store.items()
+        try db.writer.write { conn in
+            try ProjectStore.save(ProjectProposal(title: "Release Plan", goal: "계획", reason: "조사", items: [items[0]]), conn)
+            try ProjectStore.save(ProjectProposal(title: " release  PLAN ", goal: "계획", reason: "검토", items: [items[1]]), conn)
+        }
+        XCTAssertEqual(try store.proposals().count, 1)
+        try store.dismiss(XCTUnwrap(store.proposals().first).id)
+        XCTAssertTrue(try store.proposals().isEmpty)
+        XCTAssertTrue(try store.review().items.isEmpty)
+    }
+
+    func testRepeatedSuggestionsForExistingProjectAreStoredAsOne() throws {
+        let db = try WGDatabase.inMemory(), store = ProjectStore(db)
+        let project = ChatProject(title: "공통 목표", goal: "문서 작성")
+        try store.save(project)
+        for _ in 0..<2 {
+            let id = try task(db)
+            try store.record([.init(target: "project:\(project.id)", title: project.title, goal: project.goal,
+                                    reason: "같은 목표", items: ["task:\(id)"])], review: store.review())
+        }
+        XCTAssertEqual(try store.proposals().count, 1)
+        XCTAssertEqual(try store.proposals().first?.items.count, 2)
+        XCTAssertEqual(try db.writer.read { try ProjectStore.proposals($0).count }, 1)
+    }
+
+    func testIdenticalTitlesDoNotCombineDifferentExistingProjects() throws {
+        let db = try WGDatabase.inMemory(), store = ProjectStore(db)
+        let a = ChatProject(title: "보고서", goal: "A"), b = ChatProject(title: "보고서", goal: "B")
+        try store.save(a); try store.save(b)
+        try db.writer.write { conn in
+            for project in [a, b] {
+                try ProjectStore.save(ProjectProposal(projectID: project.id, title: project.title, goal: project.goal, reason: "근거", items: []), conn)
+            }
+            try ProjectStore.save(ProjectProposal(title: "보고서", goal: "새 목표", reason: "근거", items: []), conn)
+        }
+        XCTAssertEqual(try store.proposals().count, 3)
+    }
+
     private func task(_ db: WGDatabase, title: String = "문서 작성") throws -> Int64 {
         try db.writer.write { try GraphTx($0).upsertNode(label: "Task", key: UUID().uuidString, subtype: nil, title: title, props: [:], at: 10) }
     }
