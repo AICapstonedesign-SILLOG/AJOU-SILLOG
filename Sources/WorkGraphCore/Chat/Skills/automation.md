@@ -1,18 +1,18 @@
-Use this for recurring reports, monitoring, and periodic summaries. The rules under "Scheduled tasks" apply.
+# 작업 자동화
 
-**Good output.** One completed run shown to the user, and a stored prompt that lets a run with no memory of this conversation produce a consistent report. The stored prompt includes:
-- The period, relative to the run time: "실행 시점 기준 지난 7일."
-- The sources and searches to use, including the task, project, and file names found in the first run.
-- The report outline and a fixed title pattern such as "주간 업무 보고 – {시작일}~{종료일}," so that each run can find the previous one.
-- An instruction to find the previous run's report with search_context and to lead with the changes since then.
-- The change signals below.
-- What to report when nothing changed: the range checked and "변경 없음," briefly.
-- Who reads the report: the user, or others (see "The eventual reader").
+## 목표
+반복 조사·정리·보고의 실행 규칙을 명확히 정의하고, 샘플 결과와 승인 가능한 예약안을 제공한다. 제안만 만든 상태를 등록·실행 완료라고 말하지 않는다.
 
-**Evidence only Sillog has: change signals.** New tasks; tasks with no activity for 7 days or more; new problems and newly resolved ones; LaterItems still open and how long they have been open; new files and downloads linked to tasks; commits since the last run; deadlines found in the records that fall within the next two periods.
+## 작업 순서
+1. 사용자가 반복 실행을 요청했는지 확인한다. 한 번의 요청을 임의로 예약하지 않는다. 주기·시간대·대상·출력 위치 중 실행을 바꿀 필수 항목을 확인한다. 도구가 지원하지 않는 일정은 지원한다고 약속하지 않는다.
+2. 허용된 자료로 지금 한 번 실행할 수 있으면 샘플을 만든다. 사용할 자료나 접근 권한이 없으면 미검증 항목과 필요한 정보만 밝힌다. 사용자가 지정하지 않은 서비스에 연결하거나 조회 범위를 넓히지 않는다.
+3. 다음 실행이 대화 기억 없이 동작하도록 프롬프트를 쓴다. 목적, 실행 시점 기준 상대 기간과 경계·시간대, 자료 범위, 검색 기준, 결과 구조·저장 위치, 성공 판정, 오류 처리, 중복 처리 규칙을 포함한다.
+4. 이전 결과와 비교하는 작업이면 이전 보고서를 찾는 방법과 새 항목·변경·해결·미해결을 구분하는 기준을 명시한다. 이전 결과가 없으면 최초 실행으로 표시한다. 활동 없음의 기준 기간은 사용자 요구나 명시한 가정에 따른다.
+5. 결과 0건과 검색 실패를 구분한다. 정상 조회 후 변화가 없을 때만 확인 범위와 '변경 없음'을 적는다. 일부 조회가 실패하면 성공한 범위·누락·다시 확인할 부분을 보고한다.
+6. 지원되는 예약 제안 도구로 제안한다. 등록은 사용자가 앱에서 승인한 뒤에만 이뤄진다. 주기 변경·중단도 사용자 지시에 따른다. 메시지 발송·게시·삭제 같은 별도 행동을 예약에 몰래 포함하지 않는다.
 
-**Routing.** For complex research within a run, split it across sub-agents.
+## 결과물
+가능한 경우의 샘플 결과, 독립 실행 가능한 저장 프롬프트, 반복 주기와 시간 기준, 승인 대기 상태를 구분해 제공한다. 도구 호출 실패 시 제안이 만들어졌다고 말하지 않는다.
 
-**Final check.** Make the trigger, input sources, output destination, success check, and no-change behavior explicit. Define the report for a failed or incomplete lookup, so an error cannot be mistaken for no changes. Keep the sample run separate from the schedule proposal.
-
-완료 기준: one completed run shown to the user; a self-contained stored prompt with the period, sources, outline, change rule, change signals, and no-change rule; a proposal the user can approve.
+## 완료 기준
+입력·주기·결과·성공·변경 없음·실패 동작이 명확하다. 샘플과 예약안을 구분하며 실제 등록 상태를 정확히 알린다.

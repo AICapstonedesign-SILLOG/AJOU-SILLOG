@@ -1,21 +1,17 @@
-Use this for reports, progress reports (중간·최종 보고서), status updates, proposals, portfolios, and retrospectives.
+# 문서 작성
 
-**Good output.** A document shaped for its type and reader, which the reader can act on and check:
-- Status update or 업무 보고: the status, 결정이 필요한 사항, risks, and changes since the previous report come first.
-- 중간·최종 보고서: the required form followed exactly, each required section filled from evidence, and gaps marked [확인 필요: …] instead of padded.
-- Proposal: the problem, with evidence from the records that it exists; the proposal; effort estimated from comparable past tasks, labeled as an estimate with its basis; and the risks.
-- Portfolio: each achievement as the situation, what the user did (backed by authorship), and the verified result. Achievements without authorship evidence go to a list for the user to confirm.
-- Retrospective: the task's goal compared with what the records show: what went well, what got stuck, and what to change next time.
+## 목표
+보고서·제안서·포트폴리오·회고를 독자와 사용 목적에 맞는 완성된 문서로 만든다. 분량을 채우는 것보다 독자가 판단하고 행동할 수 있는 근거가 우선이다.
 
-**Evidence only Sillog has.** Add these sections where they serve the reader:
-- 작업 경과: a dated timeline of milestones from the sessions, each backed by a commit, a file, or a document version.
-- 기여 구분: what the project does, what the user authored, what the user asked AI tools to do, and what remains unverified, kept apart.
-- 문제 해결 사례: the problem, what resolved it, and the change that followed, with dates.
-- 사용 자료: the main sources behind the work and where each came from.
-- 남은 일: open LaterItems and requests not yet shown as done.
+## 작업 순서
+1. 요청에서 문서 종류, 독자, 필요한 결정, 분량·형식을 파악한다. 제공된 양식의 제목과 순서를 따른다. 결과를 크게 바꿀 필수 정보만 질문하고, 나머지는 짧게 가정을 밝힌 뒤 초안을 완성한다.
+2. 허용된 자료에서 필요한 사실과 근거를 찾는다. 요청·계획·진행 중·구현·검증 완료를 구분한다. 커밋이 있다는 사실만으로 실제 동작이나 개인의 기여를 단정하지 않는다.
+3. 중요 주장마다 뒷받침하는 자료·날짜·범위를 연결한다. 자료가 없으면 [확인 필요: 항목]으로 남긴다. 담당자, 성과 수치, 인용문, 일정은 만들어 넣지 않는다.
+4. 문서 종류에 맞춰 구성한다. 업무 보고는 상태·변경·결정 요청·남은 일을, 제안서는 문제·제안·근거·비용 가정·위험을, 포트폴리오는 본인의 역할·실행·검증된 결과를 중심으로 쓴다.
+5. 초안에 서로 모순되는 숫자·상태·날짜가 없는지, 모든 필수 항목이 채워졌는지 검토한다. 자료의 현재 상태와 과거 상태가 다르면 기준 시점을 명시한다.
 
-**Routing.** Before drafting, look for an official form or notice (often a downloaded file linked to its source page) and for the user's earlier documents of the same kind, and follow their requirements and structure. For a substantial document, split the gathering: records (sessions, problems, LaterItems, past decisions) to a context agent, and authorship (commits, pull requests, what the code implements) to a repository agent. In the chat reply, add the requirement check (met, not met, or unknown for each requirement) and the 확인 필요 items.
+## 결과물
+사용자가 요구한 매체와 길이로 바로 쓸 수 있는 문서를 제공한다. 짧은 메시지는 채팅에서 끝내고, 저장·공유할 문서는 지원되는 결과물 도구를 사용한다. 도구가 없으면 본문을 제공하고 파일을 만들었다고 말하지 않는다. 출처는 해당 주장 가까이에 붙이고, 중요한 미확인 항목만 별도로 정리한다.
 
-**Final check.** Before drafting, identify the reader, the decision or use the document should support, and the required format. Use the supplied template's headings and order when there is one. In the final pass, check that each important claim has a source and each agreed action has the owner and date available in the records.
-
-완료 기준: the document fits its type and reader; the summary gives the status and what is asked of the reader; every claim of contribution has authorship evidence; requirements from the form or notice have been checked; open items are visible.
+## 완료 기준
+요청한 구조·분량을 지켰고, 결론과 필요한 행동이 앞에 있으며, 성과·기여·완료 상태가 실제 근거보다 과장되지 않는다. 불확실한 사실을 감춘 매끈한 문서보다 검토 가능한 초안을 제공한다.
