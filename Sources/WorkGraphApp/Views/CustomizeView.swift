@@ -23,7 +23,7 @@ struct CustomizeView: View {
 
     private var list: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("맞춤 설정").font(Brand.suit(20, .bold)).foregroundStyle(Brand.ink).padding(.leading, 43).padding(.top, 17).padding(.bottom, 18)
+            Text("맞춤 설정").font(Brand.suit(20, .bold)).foregroundStyle(Brand.ink).padding(.leading, 22).padding(.top, 18).padding(.bottom, 16)
             ForEach(CustomizeSection.allCases) { section in
                 let on = state.customizeSection == section
                 Button { state.customizeSection = section; selectedID = nil } label: {
@@ -42,13 +42,16 @@ struct CustomizeView: View {
             Text("설치됨").font(Brand.suit(12)).foregroundStyle(Brand.gray).padding(.leading, 22).padding(.top, 18).padding(.bottom, 6)
             let installed = ConnectorEntry.all.filter { connected.contains($0.id) }
             if installed.isEmpty {
-                Text("설치한 커넥터이 없어요").font(Brand.suit(13)).foregroundStyle(Brand.ink).padding(.leading, 22).padding(.top, 4)
+                Text("설치한 커넥터가 없어요").font(Brand.suit(13)).foregroundStyle(Brand.ink).padding(.leading, 22).padding(.top, 4)
             } else {
                 ForEach(installed) { connector in
                     Button { state.customizeSection = .connectors; selectedID = connector.id } label: {
-                        Text(connector.name).font(Brand.suit(13)).foregroundStyle(Brand.ink)
-                            .padding(.horizontal, 10).frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
-                            .hoverHighlight(cornerRadius: 7).contentShape(Rectangle())
+                        HStack(spacing: 9) {
+                            ConnectorLogo(connector: connector, size: 16, boxed: false)
+                            Text(connector.name).font(Brand.suit(12)).foregroundStyle(Brand.ink).lineLimit(1)
+                        }
+                        .padding(.horizontal, 10).frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
+                        .hoverHighlight(cornerRadius: 7).contentShape(Rectangle())
                     }.buttonStyle(.plain).padding(.horizontal, 12)
                 }
             }
@@ -65,7 +68,7 @@ struct CustomizeView: View {
         }
     }
 
-    /// 커넥터을 켠 새 대화로 간다 (질문은 입력칸에 채워 둔다)
+    /// 커넥터를 켠 새 대화로 간다 (질문은 입력칸에 채워 둔다)
     private func useInChat(_ id: String, _ example: String) {
         guard let chat = state.chat else { return }
         chat.newConversation()
@@ -79,7 +82,7 @@ struct CustomizeView: View {
     private func startSkill(_ id: String) {
         guard let chat = state.chat else { return }
         chat.newConversation()
-        chat.current.skillIDs = [id]
+        chat.selectSkill(id)
         state.selectedTab = .chat
     }
 }
