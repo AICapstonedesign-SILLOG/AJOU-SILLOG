@@ -399,10 +399,15 @@ private struct ProjectProposalCard: View {
                 TextField("프로젝트 이름", text: $title).textFieldStyle(.plain).font(Brand.suit(13, .bold)).foregroundStyle(Brand.ink)     // CH-55: 입력칸 바탕 없이 제목 글자처럼, 고치기는 그대로
             }
             Text(proposal.goal).font(Brand.suit(12)).foregroundStyle(Brand.ink)
-            Text(proposal.reason).font(Brand.suit(10)).foregroundStyle(Brand.gray)
-            ForEach(proposal.items) { item in
-                Label(item.title, systemImage: item.isTask ? "checklist" : "bubble.left").font(Brand.suit(11)).foregroundStyle(Brand.tabText)
-            }
+            DisclosureGroup("업무·채팅 \(proposal.items.count)개 · 제안 상세 보기") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(proposal.reason).font(Brand.suit(10)).foregroundStyle(Brand.gray)
+                    ForEach(proposal.items) { item in
+                        Label(item.title, systemImage: item.isTask ? "checklist" : "bubble.left")
+                            .font(Brand.suit(11)).foregroundStyle(Brand.tabText)
+                    }
+                }.padding(.top, 8)
+            }.font(Brand.suit(11)).foregroundStyle(Brand.tabText)
             HStack {
                 Button("제안 무시") { projects.dismiss(proposal) }.buttonStyle(.plain).foregroundStyle(Brand.gray)
                 Spacer()
@@ -423,28 +428,31 @@ struct ProjectListView: View {
     var onOpen: (ChatProject) -> Void
     @State private var showEditor = false
     @State private var showProposals = false
+    @State private var hoveredProjectID: String?
 
     private var proposalCount: Int { projects.proposals.reduce(0) { $0 + $1.items.count } }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                HStack {
-                    Text("프로젝트").font(Brand.suit(20, .bold)).foregroundStyle(Brand.ink)
-                    Spacer()
+                Text("프로젝트").font(Brand.suit(20, .bold)).foregroundStyle(Brand.ink)
+                HStack(spacing: 8) {
                     Button { showEditor = true } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "plus").font(.system(size: 14))
-                            Text("새 프로젝트").font(Brand.suit(12, .medium))
-                        }.foregroundStyle(.white).padding(.horizontal, 16).frame(height: 30)
-                            .background(Brand.accentDark, in: Capsule())
+                        Label("새 프로젝트 만들기", systemImage: "plus")
+                            .font(Brand.suit(12, .medium)).foregroundStyle(.white)
+                            .padding(.horizontal, 12).frame(height: 32)
+                            .background(Brand.accent, in: Capsule()).contentShape(Capsule())
                     }.buttonStyle(.plain)
-                }
+                    Button { showProposals = true } label: {
+                        Label("프로젝트 제안", systemImage: "sparkles")
+                            .font(Brand.suit(12, .medium)).foregroundStyle(Brand.tabText)
+                            .padding(.horizontal, 12).frame(height: 32)
+                            .overlay(Capsule().strokeBorder(Brand.line)).contentShape(Capsule())
+                    }.buttonStyle(.plain)
+                }.padding(.top, 22)
                 if !projects.proposals.isEmpty {
-                    HStack(spacing: 10) {
-                        Text("함께 묶을 만한 업무와 채팅이 \(proposalCount)건 있어요.").foregroundStyle(Brand.tabText)
-                        Button("제안 보기") { showProposals = true }.buttonStyle(.plain).font(Brand.suit(12, .medium)).foregroundStyle(Brand.ink)
-                    }.font(Brand.suit(12)).padding(.top, 22)
+                    Text("함께 묶을 만한 업무와 채팅이 \(proposalCount)건 있어요.")
+                        .font(Brand.suit(12)).foregroundStyle(Brand.tabText).padding(.top, 16)
                 }
                 if projects.projects.isEmpty {
                     VStack(spacing: 6) {
@@ -465,10 +473,11 @@ struct ProjectListView: View {
                                     Spacer(minLength: 0)
                                     Text("업데이트 \(ChatDateText.day(project.updatedAt))").font(Brand.suit(10)).foregroundStyle(Brand.gray)
                                 }.padding(15).frame(height: 140, alignment: .topLeading)
-                                    .background(.white, in: RoundedRectangle(cornerRadius: 12))
+                                    .background(hoveredProjectID == project.id ? ChatPalette.rowHover : .white, in: RoundedRectangle(cornerRadius: 12))
                                     .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(ChatPalette.cardLine, lineWidth: 1))
                                     .contentShape(RoundedRectangle(cornerRadius: 12))
                             }.buttonStyle(.plain)
+                                .onHover { hoveredProjectID = $0 ? project.id : nil }
                         }
                     }.padding(.top, proposalsShown ? 22 : 38)
                 }
