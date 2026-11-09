@@ -20,9 +20,6 @@ struct ChatComposer: View {
     @State private var showConnectors = false
     @State private var showConnect = false
     @State private var showLibraryPicker = false
-    @State private var showSkillList = false
-    @State private var skillDraft: SkillDraft?
-    @State private var importSkill = false
     @State private var shortcut: ChatShortcut?
     @State private var dismissedShortcut: ChatShortcut?
     @State private var shortcutIndex = 0
@@ -53,7 +50,6 @@ struct ChatComposer: View {
         }
         .frame(maxWidth: ChatPalette.columnWidth).frame(maxWidth: .infinity)
         .sheet(isPresented: $showLibraryPicker) { LibraryPicker(library: library) { chat.attachLibraryItem($0) } }
-        .modifier(SkillEditorPresentation(chat: chat, draft: $skillDraft, importing: $importSkill))
         .onChange(of: chat.current.id) { _, _ in shortcut = nil; dismissedShortcut = nil }
     }
 
@@ -196,8 +192,14 @@ struct ChatComposer: View {
                         VStack(spacing: 2) {
                             ForEach(Array(choices.enumerated()), id: \.element.id) { index, item in
                                 Button { chooseShortcut(item) } label: {
-                                    HStack {
-                                        Label(item.name, systemImage: item.icon).font(Brand.suit(11)).lineLimit(1)
+                                    HStack(spacing: 8) {
+                                        if shortcut?.kind == .connector, let connector = ConnectorEntry.all.first(where: { $0.id == item.id }) {
+                                            ConnectorLogo(connector: connector, size: 14, boxed: false)
+                                        } else {
+                                            Image(systemName: item.icon).font(.system(size: 12))
+                                                .frame(width: 14, height: 14).accessibilityHidden(true)
+                                        }
+                                        Text(item.name).font(Brand.suit(11)).lineLimit(1)
                                         Spacer(minLength: 4)
                                         if !item.connected { Text("연결 필요").font(Brand.suit(9)).foregroundStyle(Brand.gray) }
                                     }
@@ -371,41 +373,17 @@ struct ChatComposer: View {
                     }
                     .buttonStyle(.plain).disabled(busy).accessibilityLabel("\(skill.title) \(on ? "끄기" : "켜기")")
                 }
-                Button { showSkillList = true } label: {
+                Button {
+                    state.customizeSection = .skills
+                    state.selectedTab = .connectors
+                } label: {
                     Image(systemName: "plus").font(.system(size: 10, weight: .medium))
                         .frame(width: 22, height: 22).background(ChatPalette.soft, in: Circle())
                 }
-                .buttonStyle(.plain).disabled(busy).help("스킬 추가").accessibilityLabel("스킬 추가")
-                .popover(isPresented: $showSkillList, arrowEdge: .top) { skillList }
+                .buttonStyle(.plain).disabled(busy).help("스킬 관리").accessibilityLabel("스킬 관리")
             }
         }
         .frame(height: 22)
-    }
-
-    private var skillList: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            ScrollView {
-                VStack(spacing: 2) {
-                    ForEach(chat.skills) { skill in
-                        MenuRow(icon: skill.icon, title: skill.title) {
-                            if chat.current.skillIDs.contains(skill.id) { chat.current.skillIDs.removeAll { $0 == skill.id } }
-                            else { chat.selectSkill(skill.id) }
-                        } trailing: {
-                            if chat.current.skillIDs.contains(skill.id) { Image(systemName: "checkmark").font(.system(size: 10)) }
-                        }
-                    }
-                }
-            }.frame(maxHeight: 218)
-            Divider()
-            MenuRow(icon: "plus", title: "새 스킬 만들기") {
-                showSkillList = false
-                DispatchQueue.main.async { skillDraft = SkillDraft() }
-            }
-            MenuRow(icon: "square.and.arrow.down", title: "스킬 파일 가져오기") {
-                showSkillList = false
-                DispatchQueue.main.async { importSkill = true }
-            }
-        }.padding(8).frame(width: 220)
     }
 
     // MARK: 연결과 모델 (CH-08)

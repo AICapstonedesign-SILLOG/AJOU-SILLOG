@@ -247,7 +247,8 @@ struct ChatView: View {
                 Text(chat.current.title).font(Brand.suit(14, .medium)).foregroundStyle(Brand.ink).lineLimit(1)
             }
             Spacer(minLength: 0)
-        }.padding(.top, sidebarVisible ? 20.5 : 20)   // 목록 "채팅" 제목과 글자 바닥선을 맞춘다.padding(.leading, sidebarVisible ? 28 : 21).padding(.trailing, 28)
+        }.padding(.top, sidebarVisible ? 20.5 : 20)   // 목록 "채팅" 제목과 글자 바닥선을 맞춘다
+            .padding(.leading, sidebarVisible ? 28 : 21).padding(.trailing, 28)
             .frame(height: 65, alignment: .topLeading)
     }
 

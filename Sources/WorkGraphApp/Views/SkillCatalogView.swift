@@ -8,7 +8,6 @@ struct SkillCatalogView: View {
     var onStart: (String) -> Void
 
     @State private var query = ""
-    @State private var showAdd = false
     @State private var selectedID: String?
     @State private var draft: SkillDraft?
     @State private var importing = false
@@ -48,12 +47,13 @@ struct SkillCatalogView: View {
 
     private var catalog: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
+            VStack(alignment: .leading, spacing: 20) {
                 CatalogHeader(title: "스킬", description: "채팅에서 쓸 작업 지침을 찾아보고 관리해요.", query: $query) {
-                    addMenu
+                    EmptyView()
                 }
+                addActions
                 if shown.isEmpty {
-                    Text(searchTerm.isEmpty ? "추가 버튼으로 첫 스킬을 만들어 보세요." : "맞는 스킬이 없어요.")
+                    Text(searchTerm.isEmpty ? "새 스킬을 만들거나 스킬 파일을 가져와 보세요." : "맞는 스킬이 없어요.")
                         .font(Brand.suit(12)).foregroundStyle(Brand.gray).padding(.top, 6)
                 } else if !searchTerm.isEmpty {
                     section("검색 결과", shown)
@@ -70,27 +70,20 @@ struct SkillCatalogView: View {
         }
     }
 
-    private var addMenu: some View {
-        Button { showAdd = true } label: {
-            HStack(spacing: 6) {
-                Text("추가").font(Brand.suit(12, .medium))
-                Image(systemName: "chevron.down").font(.system(size: 8, weight: .medium))
-            }
-            .foregroundStyle(.white).padding(.horizontal, 12).frame(height: 32)
-            .background(Brand.accent, in: Capsule()).contentShape(Capsule())
-        }
-        .buttonStyle(.plain).accessibilityLabel("스킬 추가")
-        .popover(isPresented: $showAdd, arrowEdge: .bottom) {
-            VStack(spacing: 2) {
-                PopRow(icon: "square.and.pencil", title: "새 스킬 만들기") {
-                    showAdd = false
-                    DispatchQueue.main.async { draft = SkillDraft() }
-                }
-                PopRow(icon: "square.and.arrow.down", title: "스킬 파일 가져오기") {
-                    showAdd = false
-                    DispatchQueue.main.async { importing = true }
-                }
-            }.padding(6).frame(width: 182)
+    private var addActions: some View {
+        HStack(spacing: 8) {
+            Button { draft = SkillDraft() } label: {
+                Label("새 스킬 만들기", systemImage: "plus")
+                    .font(Brand.suit(12, .medium)).foregroundStyle(.white)
+                    .padding(.horizontal, 12).frame(height: 32)
+                    .background(Brand.accent, in: Capsule()).contentShape(Capsule())
+            }.buttonStyle(.plain)
+            Button { importing = true } label: {
+                Label("스킬 파일 가져오기", systemImage: "square.and.arrow.down")
+                    .font(Brand.suit(12, .medium)).foregroundStyle(Brand.tabText)
+                    .padding(.horizontal, 12).frame(height: 32)
+                    .overlay(Capsule().strokeBorder(Brand.line)).contentShape(Capsule())
+            }.buttonStyle(.plain)
         }
     }
 
