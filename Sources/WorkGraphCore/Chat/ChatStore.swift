@@ -9,10 +9,11 @@ public struct ChatScope: Codable, Equatable, Sendable {
     public var useActivity = true
     public var useWeb = false
     public var useGitHub = false
-    public var plugins: [String] = []
+    public var connectors: [String] = []
     /// 활동 기록을 고른 업무·분야로 좁힌다 (여럿이면 합친 범위). 비어 있으면 모든 기록
     public var focus: [ChatFocus] = []
-    private enum CodingKeys: String, CodingKey { case paths, libraryIDs, useActivity, useWeb, useGitHub, plugins, projectID, focus = "focuses" }
+    // 기존 대화와 예약 작업의 자료 선택을 유지하기 위한 저장 키.
+    private enum CodingKeys: String, CodingKey { case paths, libraryIDs, useActivity, useWeb, useGitHub, connectors = "plugins", projectID, focus = "focuses" }
     /// 하나만 고르던 때 저장한 대화: "focus" 에 항목 하나
     private enum LegacyKeys: String, CodingKey { case focus }
 
@@ -32,7 +33,7 @@ public struct ChatScope: Codable, Equatable, Sendable {
         useActivity = try values.decodeIfPresent(Bool.self, forKey: .useActivity) ?? true
         useWeb = try values.decodeIfPresent(Bool.self, forKey: .useWeb) ?? false
         useGitHub = try values.decodeIfPresent(Bool.self, forKey: .useGitHub) ?? useWeb
-        plugins = try values.decodeIfPresent([String].self, forKey: .plugins) ?? []
+        connectors = try values.decodeIfPresent([String].self, forKey: .connectors) ?? []
         if let saved = try values.decodeIfPresent([ChatFocus].self, forKey: .focus) {
             focus = saved
         } else if let single = try decoder.container(keyedBy: LegacyKeys.self).decodeIfPresent(ChatFocus.self, forKey: .focus) {
@@ -204,7 +205,6 @@ public struct ChatStore: Sendable {
         }
     }
 
-    /// Args: migrator는 v16까지 등록된 마이그레이션 목록이다.
     static func migrateSkills(_ migrator: inout DatabaseMigrator) {
         migrator.registerMigration("v19-chat-skills") { conn in
             try conn.execute(sql: "CREATE TABLE app_chat_skills (id TEXT PRIMARY KEY, payload TEXT NOT NULL)")
@@ -270,6 +270,7 @@ public struct ChatStore: Sendable {
         return saved
     }
 
+    /// Args: migrator는 v16까지 등록된 마이그레이션 목록이다.
     /// Returns: 없음. 대화 고정 칼럼 단계를 등록한다. GRDB는 등록 순서대로 돌리므로 v16 뒤에 불러야 한다.
     /// Raises: 등록 시 없음. 적용 시 DB 오류를 전달한다.
     static func migratePins(_ migrator: inout DatabaseMigrator) {

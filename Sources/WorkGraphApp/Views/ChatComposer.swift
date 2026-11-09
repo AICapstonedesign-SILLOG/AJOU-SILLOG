@@ -9,7 +9,7 @@ struct ChatComposer: View {
     var openSettings: () -> Void
     var pendingRecords: Int = 0
     var tidyNow: () -> Void = {}
-    var onOpenPlugins: () -> Void = {}
+    var onOpenConnectors: () -> Void = {}
     var onSent: () -> Void = {}
     var showsNotice: Bool = true
 
@@ -17,7 +17,7 @@ struct ChatComposer: View {
     @State private var inputHeight: CGFloat = 38
     @State private var showPlus = false
     @State private var showFocus = false
-    @State private var showPlugins = false
+    @State private var showConnectors = false
     @State private var showConnect = false
     @State private var showLibraryPicker = false
 
@@ -37,7 +37,7 @@ struct ChatComposer: View {
                 tidyHint.padding(.top, 8).padding(.leading, 12)
             }
             if showsNotice {
-                Text("질문과 조회한 자료는 연결한 AI로 전송돼요. 웹 검색과 플러그인은 허용한 범위만 사용해요.")
+                Text("질문과 조회한 자료는 연결한 AI로 전송돼요. 웹 검색과 커넥터은 허용한 범위만 사용해요.")
                     .font(Brand.suit(9)).foregroundStyle(Brand.gray).lineLimit(1)
                     .frame(maxWidth: .infinity).padding(.top, 8)
             }
@@ -194,28 +194,28 @@ struct ChatComposer: View {
             MenuRow(icon: "globe", title: "웹 검색") { chat.current.scope.useWeb.toggle() } trailing: {
                 WebSwitch(on: chat.current.scope.useWeb)
             }
-            MenuRow(icon: "puzzlepiece.extension", title: "플러그인") { showPlugins = true } trailing: {
+            MenuRow(icon: "puzzlepiece.extension", title: "커넥터") { showConnectors = true } trailing: {
                 Image(systemName: "chevron.right").font(.system(size: 9)).foregroundStyle(Brand.gray)
             }
-            .popover(isPresented: $showPlugins, arrowEdge: .trailing) { pluginMenu }
+            .popover(isPresented: $showConnectors, arrowEdge: .trailing) { connectorMenu }
         }
         .padding(6).frame(width: 190)
     }
 
-    /// CH-31, CH-71: 플러그인 스위치 넷과 둘러보기
-    private var pluginMenu: some View {
+    /// CH-31, CH-71: 커넥터 스위치 넷과 둘러보기
+    private var connectorMenu: some View {
         VStack(alignment: .leading, spacing: 0) {
-            pluginRow("Gmail", "envelope", pluginBinding("gmail"))
-            pluginRow("Google Drive", "externaldrive", pluginBinding("drive"))
-            pluginRow("GitHub", "chevron.left.forwardslash.chevron.right", githubBinding())
-            pluginRow("Notion", "doc.text", pluginBinding("notion"))
+            connectorRow("Gmail", "envelope", connectorBinding("gmail"))
+            connectorRow("Google Drive", "externaldrive", connectorBinding("drive"))
+            connectorRow("GitHub", "chevron.left.forwardslash.chevron.right", githubBinding())
+            connectorRow("Notion", "doc.text", connectorBinding("notion"))
             Rectangle().fill(Brand.line).frame(height: 1).padding(.vertical, 4)
-            MenuRow(icon: "square.grid.2x2", title: "플러그인 둘러보기") { showPlugins = false; showPlus = false; onOpenPlugins() }
+            MenuRow(icon: "square.grid.2x2", title: "커넥터 둘러보기") { showConnectors = false; showPlus = false; onOpenConnectors() }
         }
         .padding(6).frame(width: 190)
     }
 
-    private func pluginRow(_ title: String, _ icon: String, _ on: Binding<Bool>) -> some View {
+    private func connectorRow(_ title: String, _ icon: String, _ on: Binding<Bool>) -> some View {
         MenuRow(icon: icon, title: title) { on.wrappedValue.toggle() } trailing: { WebSwitch(on: on.wrappedValue) }
     }
 
@@ -355,24 +355,24 @@ struct ChatComposer: View {
         .font(Brand.suit(10)).foregroundStyle(Brand.gray)
     }
 
-    /// Args: id는 대화에서 켜거나 끌 플러그인이다.
-    /// Returns: 대화별 플러그인 선택 바인딩. 연결 안 된 플러그인을 켜면 플러그인 화면으로 간다.
+    /// Args: id는 대화에서 켜거나 끌 커넥터이다.
+    /// Returns: 대화별 커넥터 선택 바인딩. 연결 안 된 커넥터을 켜면 커넥터 화면으로 간다.
     /// Raises: 없음.
-    private func pluginBinding(_ id: String) -> Binding<Bool> {
-        Binding(get: { chat.current.scope.plugins.contains(id) }, set: { enabled in
+    private func connectorBinding(_ id: String) -> Binding<Bool> {
+        Binding(get: { chat.current.scope.connectors.contains(id) }, set: { enabled in
             if enabled {
-                guard (try? PluginAuth.isConnected(id)) == true else { showPlugins = false; showPlus = false; onOpenPlugins(); return }
-                if !chat.current.scope.plugins.contains(id) { chat.current.scope.plugins.append(id) }
-            } else { chat.current.scope.plugins.removeAll { $0 == id } }
+                guard (try? ConnectorAuth.isConnected(id)) == true else { showConnectors = false; showPlus = false; onOpenConnectors(); return }
+                if !chat.current.scope.connectors.contains(id) { chat.current.scope.connectors.append(id) }
+            } else { chat.current.scope.connectors.removeAll { $0 == id } }
         })
     }
 
     /// Args: 없음.
     /// Returns: GitHub 연결 상태를 확인한 뒤 변경하는 대화별 자료 바인딩.
-    /// Raises: 없음. 미연결 상태에서는 플러그인 화면으로 간다.
+    /// Raises: 없음. 미연결 상태에서는 커넥터 화면으로 간다.
     private func githubBinding() -> Binding<Bool> {
         Binding(get: { chat.current.scope.useGitHub }, set: { enabled in
-            if enabled && (try? PluginAuth.isConnected("github")) != true { showPlugins = false; showPlus = false; onOpenPlugins(); return }
+            if enabled && (try? ConnectorAuth.isConnected("github")) != true { showConnectors = false; showPlus = false; onOpenConnectors(); return }
             chat.current.scope.useGitHub = enabled
         })
     }

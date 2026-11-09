@@ -1,7 +1,7 @@
 import Foundation
 
 /// 구글 캘린더 API (맥에 구글 계정을 안 붙인 사람용): 캘린더 목록, 기간의 일정, 일정 넣기.
-/// 로그인(토큰)은 앱이 맡는다 (PluginAuth 의 구글 로그인, 권한은 캘린더 목록 읽기와 일정 읽기·쓰기)
+/// 로그인(토큰)은 앱이 맡는다 (ConnectorAuth 의 구글 로그인, 권한은 캘린더 목록 읽기와 일정 읽기·쓰기)
 public struct GoogleCalendarClient: Sendable {
     /// 요청 하나 보내기: (본문, HTTP 상태)
     public typealias Fetch = @Sendable (URLRequest) async throws -> (Data, Int)

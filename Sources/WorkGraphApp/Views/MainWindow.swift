@@ -15,7 +15,7 @@ struct NavRail: View {
         case .records: RailIcon.records
         case .calendar: RailIcon.calendar
         case .settings: RailIcon.settings
-        case .plugins: RailIcon.plugins
+        case .connectors: RailIcon.connectors
         }
     }
 
@@ -410,12 +410,12 @@ private struct HideWindowTitle: ViewModifier {
 
 struct MainWindow: View {
     enum Tab: String, CaseIterable, Identifiable {
-        case graph = "그래프", chat = "채팅", records = "기록 자료", calendar = "캘린더", settings = "설정", plugins = "플러그인"   // 업무는 그래프 옆 패널(TasksPanel), 파일·보관함·활동 로그는 기록 자료 안 구역
+        case graph = "그래프", chat = "채팅", records = "기록 자료", calendar = "캘린더", settings = "설정", connectors = "커넥터"   // 업무는 그래프 옆 패널(TasksPanel), 파일·보관함·활동 로그는 기록 자료 안 구역
         var id: String { rawValue }
 
-        /// 캘린더는 켜져 있을 때, 플러그인은 채팅과 맞춤 설정에서만 아이콘 줄에 보인다.
+        /// 캘린더는 켜져 있을 때, 커넥터은 채팅과 맞춤 설정에서만 아이콘 줄에 보인다.
         static func visible(calendar: Bool = AppFeatures.calendarOn, selected: Tab = .graph) -> [Tab] {
-            allCases.filter { (calendar || $0 != .calendar) && ($0 != .plugins || selected == .chat || selected == .plugins) }
+            allCases.filter { (calendar || $0 != .calendar) && ($0 != .connectors || selected == .chat || selected == .connectors) }
         }
     }
 
@@ -425,7 +425,7 @@ struct MainWindow: View {
         switch ProcessInfo.processInfo.environment["WORKGRAPH_TAB"] {
         case "settings", "ai", "activity": return .settings
         case "chat": return .chat
-        case "plugins", "skills": return .plugins
+        case "connectors", "skills": return .connectors
         case "records", "files", "history", "library": return .records
         case "calendar": return AppFeatures.calendarOn ? .calendar : .graph
         default: return .graph                                   // 권한·로그인 안내는 온보딩이 맡는다
@@ -476,7 +476,7 @@ struct MainWindow: View {
                             case .records: RecordsView()
                             case .calendar: CalendarView()
                             case .settings: SettingsView()
-                            case .plugins: CustomizeView()
+                            case .connectors: CustomizeView()
                             }
                         }
                     }

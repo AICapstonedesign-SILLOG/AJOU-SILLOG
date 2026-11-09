@@ -280,12 +280,12 @@ enum SnapshotCatalog {
         })
         let tab = { (section: CustomizeSection) -> AppState in
             AppState(preview: { s in
-                s.phase = .ready; s.status = collector(); s.selectedTab = .plugins; s.customizeSection = section
+                s.phase = .ready; s.status = collector(); s.selectedTab = .connectors; s.customizeSection = section
                 s.chat = state.chat
             })
         }
         return [Snapshot(name: "CH-01", size: window, view: AnyView(MainWindow().environmentObject(state))),
-                Snapshot(name: "CH-13", size: window, view: AnyView(MainWindow().environmentObject(tab(.plugins)))),
+                Snapshot(name: "CH-13", size: window, view: AnyView(MainWindow().environmentObject(tab(.connectors)))),
                 Snapshot(name: "CH-59", size: window, view: AnyView(MainWindow().environmentObject(tab(.skills))))] + chatFocus
     }
 

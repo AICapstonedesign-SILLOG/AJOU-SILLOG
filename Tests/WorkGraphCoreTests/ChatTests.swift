@@ -2,6 +2,21 @@ import XCTest
 @testable import WorkGraphCore
 
 final class ChatTests: XCTestCase {
+    func testConnectorRenamePreservesSavedScopes() throws {
+        let saved = Data(#"{"plugins":["gmail","figma"],"useWeb":false,"useGitHub":true}"#.utf8)
+        let scope = try JSONDecoder().decode(ChatScope.self, from: saved)
+        XCTAssertEqual(scope.connectors, ["gmail", "figma"])
+        XCTAssertTrue(scope.useGitHub)
+        XCTAssertFalse(scope.useWeb)
+        let encoded = try JSONEncoder().encode(scope)
+        let stored = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        XCTAssertEqual(stored["plugins"] as? [String], ["gmail", "figma"])
+        XCTAssertEqual(try JSONDecoder().decode(ChatScope.self, from: encoded), scope)
+    }
+
+    /// Args: 없음.
+    /// Returns: 없음. 이름 변경 저장과 대상 대화의 메시지 삭제를 확인한다.
+    /// Raises: 테스트 DB 오류.
     func testRenameAndDeleteConversation() throws {
         let store = ChatStore(try .inMemory()), conversation = ChatConversation(), other = ChatConversation()
         try store.startTurn(conversation: conversation,
@@ -85,11 +100,11 @@ final class ChatTests: XCTestCase {
         XCTAssertTrue(web.specs.contains { $0.name == "web_search" })
         XCTAssertFalse(web.specs.contains { $0.name == "github_read" })
 
-        scope.plugins = ["gmail", "drive", "notion"]
-        let plugins = ChatTools(db: try .inMemory(), scope: scope)
-        XCTAssertTrue(plugins.specs.contains { $0.name == "gmail_search" })
-        XCTAssertTrue(plugins.specs.contains { $0.name == "drive_read" })
-        XCTAssertTrue(plugins.specs.contains { $0.name == "notion_search" })
+        scope.connectors = ["gmail", "drive", "notion"]
+        let connectors = ChatTools(db: try .inMemory(), scope: scope)
+        XCTAssertTrue(connectors.specs.contains { $0.name == "gmail_search" })
+        XCTAssertTrue(connectors.specs.contains { $0.name == "drive_read" })
+        XCTAssertTrue(connectors.specs.contains { $0.name == "notion_search" })
     }
 
     /// Args: 없음.
@@ -268,8 +283,21 @@ final class ChatTests: XCTestCase {
         XCTAssertFalse(prompts[1].contains("\n<skill_instructions>\n"))
     }
 
+    func testExternalConnectorToolsRequireExplicitScope() throws {
+        var scope = ChatScope()
+        scope.connectors = ["figma", "discord"]
+        let db = try WGDatabase.inMemory()
+        let names = Set(ChatTools(db: db, scope: scope).specs.map(\.name))
+        XCTAssertTrue(Set(["figma_search", "figma_read", "discord_search", "discord_read"]).isSubset(of: names))
+        XCTAssertFalse(names.contains("slack_search"))
+        XCTAssertFalse(names.contains("canva_read"))
+    }
+
+    /// Args: 없음.
+    /// Returns: 없음. 실행 정보 블록을 채우고, 하위 에이전트에는 스킬·프로젝트·기억 자료 블록을 빼는지 확인한다.
+    /// Raises: 리소스 읽기 오류.
     func testSystemPromptFillsRuntimeBlocks() throws {
-        var scope = ChatScope(); scope.paths = ["/tmp/a", "/tmp/b"]; scope.useWeb = true; scope.useGitHub = true; scope.plugins = ["notion"]
+        var scope = ChatScope(); scope.paths = ["/tmp/a", "/tmp/b"]; scope.useWeb = true; scope.useGitHub = true; scope.connectors = ["notion"]
         var project = ChatProject(title: "졸업 프로젝트", goal: ""); project.memoryMode = .projectOnly
         project.instructions = "{{current_time}}은 그대로 둔다"
         let prompt = ChatSystemPrompt(template: try ChatSystemPrompt.template(), scope: scope, chatModel: "gpt-test", scheduled: true,
@@ -279,7 +307,7 @@ final class ChatTests: XCTestCase {
         let main = prompt.render(role: nil, now: now, timeZone: seoul)
         XCTAssertTrue(main.contains("<skill_instructions>\n## 문서 작성\n테스트 절차\n</skill_instructions>"))
         XCTAssertTrue(main.contains("<project>\ntitle: 졸업 프로젝트\ngoal: none\nmemory_mode: 프로젝트 전용\ncommon_instructions:\n{{current_time}}은 그대로 둔다\n</project>"))
-        XCTAssertTrue(main.contains("activity_records: on\nconnected_paths: /tmp/a, /tmp/b\nweb_search: on\nplugins: notion, github"))
+        XCTAssertTrue(main.contains("activity_records: on\nconnected_paths: /tmp/a, /tmp/b\nweb_search: on\nconnectors: notion, github"))
         XCTAssertTrue(main.contains(#"<remembered_sources>"# + "\n" + #"[{"id":"library:42"}]"# + "\n</remembered_sources>"))
         XCTAssertTrue(main.contains("current_time: 2026-10-07 09:00 (Wednesday)\ntimezone: Asia/Seoul\nchat_model: gpt-test\nrun_mode: scheduled\nagent_role: main\nraw_records_since: 2026-09-08"))
         let sub = prompt.render(role: "review", now: now, timeZone: seoul)

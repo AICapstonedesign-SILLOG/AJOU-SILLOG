@@ -40,8 +40,8 @@ final class AppState: ObservableObject {
     @Published var recordsSection: RecordsView.Section = MainWindow.initialRecordsSection
     /// 설정 탭에서 보고 있는 구역 (권한 안내가 일반으로 바로 연다)
     @Published var settingsSection: SettingsView.Section = MainWindow.initialSettingsSection
-    /// 플러그인 탭(맞춤 설정)에서 보고 있는 구역. WORKGRAPH_TAB=skills 면 스킬로 시작
-    @Published var customizeSection: CustomizeSection = ProcessInfo.processInfo.environment["WORKGRAPH_TAB"] == "skills" ? .skills : .plugins
+    /// 커넥터 탭(맞춤 설정)에서 보고 있는 구역. WORKGRAPH_TAB=skills 면 스킬로 시작
+    @Published var customizeSection: CustomizeSection = ProcessInfo.processInfo.environment["WORKGRAPH_TAB"] == "skills" ? .skills : .connectors
     /// 업무 드로어(창 왼쪽 업무 목록)에서 고른 업무와 상세가 펼쳐졌는지. 업무 목록에서 눌러도, 그래프에서 눌러도 같은 드로어가 열린다
     @Published var selectedTaskId: Int64?
     @Published var taskDetailOpen = false { didSet { if !taskDetailOpen { openNode = nil; nodeTrail = [] } } }   // 드로어를 닫으면 노드 상세도 닫는다

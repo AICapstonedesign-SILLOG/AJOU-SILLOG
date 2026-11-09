@@ -18,15 +18,22 @@ public struct ChatTools: Sendable {
     let library: LibraryStore
     let searchKey: String
     let searchModel: String
-    let pluginToken: @Sendable (String) async throws -> String
+    let connectorToken: @Sendable (String) async throws -> String
+    let connectorResource: @Sendable (String) throws -> String
+    let remoteConnectors: Set<String>
 
-    /// Args: db는 활동 DB, scope는 자료 범위, searchKey·searchModel은 OpenAI 검색 인증과 모델, pluginToken은 플러그인 OAuth 토큰 조회이다.
+    /// Args: db는 활동 DB, scope는 자료 범위, searchKey·searchModel은 OpenAI 검색 인증과 모델, connectorToken은 커넥터 OAuth 토큰 조회이다.
     /// Returns: 채팅 한 번에 사용할 읽기 도구 모음.
     /// Raises: 없음.
-    public init(db: WGDatabase, scope: ChatScope, searchKey: String = "", searchModel: String = "", pluginToken: @escaping @Sendable (String) async throws -> String = { _ in "" }) {
+    public init(db: WGDatabase, scope: ChatScope, searchKey: String = "", searchModel: String = "",
+                connectorToken: @escaping @Sendable (String) async throws -> String = { _ in "" },
+                connectorResource: @escaping @Sendable (String) throws -> String = { _ in "" },
+                remoteConnectors: Set<String> = []) {
         search = ContextSearch(db, projectID: scope.projectID, focus: scope.focus, includeActivity: scope.useActivity)
         library = LibraryStore(db)
-        self.scope = scope; self.searchKey = searchKey; self.searchModel = searchModel; self.pluginToken = pluginToken
+        self.scope = scope; self.searchKey = searchKey; self.searchModel = searchModel; self.connectorToken = connectorToken
+        self.connectorResource = connectorResource
+        self.remoteConnectors = remoteConnectors
     }
 
     /// Args: name·description은 도구 설명, fields는 문자열 인자 설명이다.
@@ -64,20 +71,26 @@ public struct ChatTools: Sendable {
         }
         if scope.useGitHub {
             tools.append(Self.spec("github_search", "연결된 GitHub 계정의 저장소를 이름과 설명으로 찾는다.", ["query": "저장소 이름 또는 설명 검색어. 전체 목록이면 빈 문자열"]))
-            tools.append(Self.spec("github_read", "GitHub 플러그인에서 저장소·PR·코드 파일을 읽는다.", ["repository": "owner/repository", "path": "저장소 안 파일 경로. 빈 문자열이면 저장소와 최근 PR 목록", "pull": "PR 번호. 파일을 읽을 때는 빈 문자열"]))
-            tools.append(Self.spec("github_list", "GitHub 플러그인에서 저장소 루트 또는 하위 폴더의 파일 목록을 확인한다.", ["repository": "owner/repository", "path": "폴더 경로. 빈 문자열이면 저장소 루트"]))
+            tools.append(Self.spec("github_read", "GitHub 커넥터에서 저장소·PR·코드 파일을 읽는다.", ["repository": "owner/repository", "path": "저장소 안 파일 경로. 빈 문자열이면 저장소와 최근 PR 목록", "pull": "PR 번호. 파일을 읽을 때는 빈 문자열"]))
+            tools.append(Self.spec("github_list", "GitHub 커넥터에서 저장소 루트 또는 하위 폴더의 파일 목록을 확인한다.", ["repository": "owner/repository", "path": "폴더 경로. 빈 문자열이면 저장소 루트"]))
         }
-        if scope.plugins.contains("gmail") {
-            tools.append(Self.spec("gmail_search", "Gmail 플러그인에서 관련 메일을 검색한다. 본문은 필요한 메일만 읽는다.", ["query": "Gmail 검색어"]))
-            tools.append(Self.spec("gmail_read", "Gmail 플러그인에서 검색 결과 메일의 본문을 읽는다.", ["id": "메일 ID"]))
+        if scope.connectors.contains("gmail") {
+            tools.append(Self.spec("gmail_search", "Gmail 커넥터에서 관련 메일을 검색한다. 본문은 필요한 메일만 읽는다.", ["query": "Gmail 검색어"]))
+            tools.append(Self.spec("gmail_read", "Gmail 커넥터에서 검색 결과 메일의 본문을 읽는다.", ["id": "메일 ID"]))
         }
-        if scope.plugins.contains("drive") {
-            tools.append(Self.spec("drive_search", "Google Drive 플러그인에서 파일 이름을 검색한다.", ["query": "파일 이름 검색어"]))
-            tools.append(Self.spec("drive_read", "Google Drive 플러그인에서 텍스트 또는 Google 문서의 내용을 읽는다.", ["id": "파일 ID"]))
+        if scope.connectors.contains("drive") {
+            tools.append(Self.spec("drive_search", "Google Drive 커넥터에서 파일 이름을 검색한다.", ["query": "파일 이름 검색어"]))
+            tools.append(Self.spec("drive_read", "Google Drive 커넥터에서 텍스트 또는 Google 문서의 내용을 읽는다.", ["id": "파일 ID"]))
         }
-        if scope.plugins.contains("notion") {
-            tools.append(Self.spec("notion_search", "Notion 플러그인에서 페이지 제목을 검색한다.", ["query": "페이지 제목 검색어"]))
-            tools.append(Self.spec("notion_read", "Notion 플러그인에서 페이지의 블록 내용을 읽는다.", ["id": "페이지 ID"]))
+        if scope.connectors.contains("notion") && !remoteConnectors.contains("notion") {
+            tools.append(Self.spec("notion_search", "Notion 커넥터에서 페이지 제목을 검색한다.", ["query": "페이지 제목 검색어"]))
+            tools.append(Self.spec("notion_read", "Notion 커넥터에서 페이지의 블록 내용을 읽는다.", ["id": "페이지 ID"]))
+        }
+        for connector in RemoteReadConnector.allCases where scope.connectors.contains(connector.rawValue) && remoteConnectors.contains(connector.rawValue) {
+            tools += connector.specs
+        }
+        for connector in ExternalReadConnector.allCases where scope.connectors.contains(connector.id) && !remoteConnectors.contains(connector.id) {
+            tools += connector.specs
         }
         if scope.useWeb {
             tools += [
@@ -94,6 +107,21 @@ public struct ChatTools: Sendable {
     func execute(_ call: ChatToolCall) async throws -> ChatToolOutput {
         guard specs.contains(where: { $0.name == call.name }) else { throw ChatToolError.unavailable("허용하지 않은 도구입니다: \(call.name)") }
         let args = try JSONDecoder().decode([String: String].self, from: Data(call.arguments.utf8))
+        if let prefix = call.name.split(separator: "_").first, remoteConnectors.contains(String(prefix)),
+           let connector = RemoteReadConnector(rawValue: String(prefix)) {
+            let remote = RemoteReadSession(connector, token: try await connectorToken(connector.rawValue))
+            if call.name == "\(connector.rawValue)_tools" {
+                let tools = try await remote.readTools()
+                return .init(text: JSONValue.encodeObject(["tools": .array(tools.map(JSONValue.object))]))
+            }
+            let arguments = try JSONDecoder().decode([String: JSONValue].self, from: Data((args["arguments"] ?? "{}").utf8))
+            let result = try await remote.call(args["tool"] ?? "", arguments: arguments)
+            let body = String(RemoteReadSession.text(result).prefix(24000))
+            let sources = RemoteReadSession.references(result).map {
+                ChatSource(id: "\(connector.rawValue):\($0.url)", title: $0.title, location: $0.url, excerpt: body)
+            }
+            return .init(text: body, sources: sources)
+        }
         switch call.name {
         case "search_context":
             let from = try Self.date(args["from"] ?? "", fallback: 0)
@@ -138,8 +166,50 @@ public struct ChatTools: Sendable {
         case "drive_read": return try await driveRead(args["id"] ?? "")
         case "notion_search": return try await notionSearch(args["query"] ?? "")
         case "notion_read": return try await notionRead(args["id"] ?? "")
-        default: throw ChatToolError.unavailable("알 수 없는 도구입니다.")
+        default:
+            guard let prefix = call.name.split(separator: "_").first,
+                  let connector = ExternalReadConnector(rawValue: String(prefix)) else {
+                throw ChatToolError.unavailable("알 수 없는 도구입니다.")
+            }
+            return try await Self.output(connector.sources(query: args["query"] ?? "", reference: args["id"],
+                                                        token: connectorToken(connector.id), resource: connectorResource(connector.id)))
         }
+    }
+
+    /// 연결한 서비스에서 자료 한 건을 검색하고 읽는다. 검사 결과만 반환한다.
+    public func checkConnector(_ id: String) async throws -> Bool {
+        if remoteConnectors.contains(id), let connector = RemoteReadConnector(rawValue: id) {
+            return try await RemoteReadSession(connector, token: connectorToken(id)).checkSearchAndRead()
+        }
+        let sources: [ChatSource]
+        switch id {
+        case "github":
+            guard let repository = try await githubSearch("").sources.first else { return false }
+            sources = try await github(repository: repository.title, path: "", pull: "").sources
+        case "gmail":
+            let recent = try await gmailSearch("", limit: 3).sources
+            for mail in recent {
+                let body = try await gmailRead(mail.id, allowSnippet: false).sources
+                if body.contains(where: { !$0.excerpt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) { return true }
+            }
+            return false
+        case "drive":
+            guard let file = try await driveSearch("", onlyReadable: true).sources.first else { return false }
+            sources = try await driveRead(file.id).sources
+        case "notion":
+            guard let page = try await notionSearch("", onlyPages: true).sources.first else { return false }
+            sources = try await notionRead(page.id).sources
+        default:
+            guard let connector = ExternalReadConnector(rawValue: id) else {
+                throw ChatToolError.unavailable("알 수 없는 커넥터입니다.")
+            }
+            let token = try await connectorToken(id)
+            let resource = try connectorResource(id)
+            guard let result = try await connector.sources(token: token, resource: resource, limit: 1).first else { return false }
+            if connector == .slack { sources = [result] }
+            else { sources = try await connector.sources(reference: result.id, token: token, resource: resource) }
+        }
+        return sources.contains { !$0.excerpt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     }
 
     /// 중요한 저장 자료와 질문에 맞는 과거 기록을 첫 요청부터 제공한다. 원문 추가 조회는 도구로 이어간다.
@@ -322,7 +392,7 @@ public struct ChatTools: Sendable {
             let encoded = path.split(separator: "/").map { String($0).addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? String($0) }.joined(separator: "/")
             var request = URLRequest(url: URL(string: "https://api.github.com/repos/\(repository)/contents/\(encoded)")!)
             request.setValue("application/vnd.github.raw+json", forHTTPHeaderField: "Accept")
-            let token = try await pluginToken("github")
+            let token = try await connectorToken("github")
             if !token.isEmpty { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
             let (data, response) = try await URLSession.shared.data(for: request)
             guard (response as? HTTPURLResponse)?.statusCode == 200, data.count <= 1_000_000 else { throw ChatToolError.unavailable("GitHub 파일을 읽지 못했습니다. 권한·경로·크기를 확인하세요.") }
@@ -331,7 +401,7 @@ public struct ChatTools: Sendable {
         }
         let paths = pull.isEmpty ? ["", "/pulls?state=all&per_page=10"] : ["/pulls/\(pull)", "/pulls/\(pull)/files?per_page=30"]
         var excerpts: [String] = []
-        let token = try await pluginToken("github")
+        let token = try await connectorToken("github")
         for path in paths {
             var request = URLRequest(url: URL(string: "https://api.github.com/repos/\(repository)\(path)")!)
             request.timeoutInterval = 30
@@ -362,7 +432,7 @@ public struct ChatTools: Sendable {
         let encoded = path.split(separator: "/").map { String($0).addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? String($0) }.joined(separator: "/")
         var request = URLRequest(url: URL(string: "https://api.github.com/repos/\(repository)/contents/\(encoded)")!)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        let token = try await pluginToken("github")
+        let token = try await connectorToken("github")
         if !token.isEmpty { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         let items = try await Self.json(request).arrayValue ?? []
         let sources = items.prefix(100).compactMap { value -> ChatSource? in
@@ -378,8 +448,8 @@ public struct ChatTools: Sendable {
     /// Returns: 최근 저장소 최대 100개 중 관련 저장소의 이름·설명·링크.
     /// Raises: GitHub 연결·API 오류.
     private func githubSearch(_ query: String) async throws -> ChatToolOutput {
-        let token = try await pluginToken("github")
-        guard !token.isEmpty else { throw ChatToolError.unavailable("GitHub 플러그인을 설정에서 연결하세요.") }
+        let token = try await connectorToken("github")
+        guard !token.isEmpty else { throw ChatToolError.unavailable("GitHub 커넥터를 설정에서 연결하세요.") }
         var request = URLRequest(url: URL(string: "https://api.github.com/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member")!)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -397,8 +467,8 @@ public struct ChatTools: Sendable {
     /// Args: request는 고정된 외부 API 주소에 보내는 요청이다.
     /// Returns: 2MB 이하의 JSON 값.
     /// Raises: HTTP 오류, 응답 크기 초과, 연결·디코딩 오류.
-    static func json(_ request: URLRequest) async throws -> JSONValue {
-        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+    static func json(_ request: URLRequest, delegate: URLSessionTaskDelegate? = nil) async throws -> JSONValue {
+        let (bytes, response) = try await URLSession.shared.bytes(for: request, delegate: delegate)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(status) else { throw ChatToolError.unavailable("외부 서비스 HTTP \(status). API 키·권한·사용량을 확인하세요.") }
         var data = Data()
