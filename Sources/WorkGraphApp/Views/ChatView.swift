@@ -117,10 +117,6 @@ struct ChatView: View {
             switch pane {
             case .chat:
                 chatContent
-            case .allConversations:
-                ChatAllConversationsView(chat: chat,
-                                         onOpen: { chat.select($0); pane = .chat },
-                                         onNew: { chat.newConversation(); pane = .chat })
             case .projects:
                 ProjectListView(projects: chat.projects, chat: chat,
                                 onOpen: { project in chat.newConversation(projectID: project.id); pane = .project(project.id) })

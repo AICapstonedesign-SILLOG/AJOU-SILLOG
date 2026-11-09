@@ -58,11 +58,6 @@ struct ChatSidebar: View {
                         sectionHeader("최근 항목", open: $recentOpen)
                         if recentOpen {
                             ForEach(selecting ? chat.conversations : chat.recentConversations) { conversationRow($0) }
-                            Button { pane = .allConversations } label: {
-                                Text("모두 보기").font(Brand.suit(12)).foregroundStyle(Brand.tabText)
-                                    .padding(.leading, 10).frame(height: 32, alignment: .leading)
-                                    .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-                            }.buttonStyle(.plain)
                         }
                     }.onHover { hoverSection = $0 ? "recent" : (hoverSection == "recent" ? nil : hoverSection) }
                 }.padding(.horizontal, 12).padding(.top, 14).padding(.bottom, 16)
