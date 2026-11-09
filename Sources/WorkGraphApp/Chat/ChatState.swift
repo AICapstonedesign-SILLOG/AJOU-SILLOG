@@ -10,6 +10,8 @@ final class ChatState: ObservableObject {
     @Published var current = ChatConversation()
     @Published var messages: [ConversationMessage] = []
     @Published var skills: [ChatSkill] = []
+    @Published private(set) var pinnedSkillIDs: [String] = []
+    var pinnedSkills: [ChatSkill] { pinnedSkillIDs.compactMap { id in skills.first { $0.id == id } } }
     @Published var automations: [ChatAutomation] = []
     @Published var draft = ""
     @Published var draftConnectors: [String] = []
@@ -48,6 +50,7 @@ final class ChatState: ObservableObject {
         do {
             try store.recoverInterruptedRuns()
             skills = try store.skills()
+            pinnedSkillIDs = try store.pinnedSkillIDs()
             try reload()                                  // 처음엔 최근 대화가 아니라 새 대화(홈)로 시작
         } catch { self.error = error.localizedDescription }
         refreshFocusChoices()
@@ -94,6 +97,7 @@ final class ChatState: ObservableObject {
     func deleteSkill(_ skill: ChatSkill) throws {
         try store.deleteSkill(skill)
         skills.removeAll { $0.id == skill.id }
+        pinnedSkillIDs.removeAll { $0 == skill.id }
         if current.skillIDs.contains(skill.id) {
             current.skillIDs.removeAll { $0 == skill.id }
             saveScope()
@@ -103,6 +107,16 @@ final class ChatState: ObservableObject {
     func selectSkill(_ id: String) {
         guard skills.contains(where: { $0.id == id }), !current.skillIDs.contains(id) else { return }
         current.skillIDs.append(id)
+    }
+
+    func togglePinnedSkill(_ id: String) {
+        var ids = pinnedSkillIDs
+        if ids.contains(id) { ids.removeAll { $0 == id } }
+        else { ids.append(id) }
+        do {
+            try store.setPinnedSkills(ids)
+            pinnedSkillIDs = ids
+        } catch { self.error = error.localizedDescription }
     }
 
     func newConversation(projectID: String? = nil, focus: [ChatFocus] = []) {

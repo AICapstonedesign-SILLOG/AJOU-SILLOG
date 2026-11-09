@@ -212,6 +212,33 @@ public struct ChatStore: Sendable {
         migrator.registerMigration("v20-chat-skill-deletions") { conn in
             try conn.execute(sql: "CREATE TABLE app_deleted_skills (id TEXT PRIMARY KEY)")
         }
+        migrator.registerMigration("v21-chat-skill-pins") { conn in
+            try conn.execute(sql: "CREATE TABLE app_chat_skill_pins (id TEXT PRIMARY KEY, position INTEGER NOT NULL)")
+            for (position, skill) in try ChatSkill.load().prefix(6).enumerated() {
+                try conn.execute(sql: "INSERT INTO app_chat_skill_pins VALUES (?, ?)", arguments: [skill.id, position])
+            }
+        }
+    }
+
+    public func pinnedSkillIDs() throws -> [String] {
+        let available = Set(try skills().map(\.id))
+        return try db.writer.read { conn in
+            try String.fetchAll(conn, sql: "SELECT id FROM app_chat_skill_pins ORDER BY position")
+                .filter { available.contains($0) }
+        }
+    }
+
+    public func setPinnedSkills(_ ids: [String]) throws {
+        let available = Set(try skills().map(\.id))
+        guard ids.count <= 6, Set(ids).count == ids.count, ids.allSatisfy({ available.contains($0) }) else {
+            throw ChatToolError.unavailable("목록에 있는 스킬을 최대 6개까지 표시할 수 있어요.")
+        }
+        try db.writer.write { conn in
+            try conn.execute(sql: "DELETE FROM app_chat_skill_pins")
+            for (position, id) in ids.enumerated() {
+                try conn.execute(sql: "INSERT INTO app_chat_skill_pins VALUES (?, ?)", arguments: [id, position])
+            }
+        }
     }
 
     public func skills() throws -> [ChatSkill] {
@@ -239,6 +266,7 @@ public struct ChatStore: Sendable {
     public func deleteSkill(_ skill: ChatSkill) throws {
         try db.writer.write { conn in
             try conn.execute(sql: "DELETE FROM app_chat_skills WHERE id = ?", arguments: [skill.id])
+            try conn.execute(sql: "DELETE FROM app_chat_skill_pins WHERE id = ?", arguments: [skill.id])
             if !skill.isCustom {
                 try conn.execute(sql: "INSERT OR IGNORE INTO app_deleted_skills VALUES (?)", arguments: [skill.id])
             }

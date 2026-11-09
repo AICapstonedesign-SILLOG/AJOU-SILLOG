@@ -104,7 +104,8 @@ struct SkillCatalogView: View {
     }
 
     private func icon(_ skill: ChatSkill, size: CGFloat) -> some View {
-        Image(systemName: skill.icon).font(.system(size: size * 0.44)).foregroundStyle(Brand.tabText)
+        Image(systemName: skill.icon).resizable().scaledToFit()
+            .frame(width: size * 0.5, height: size * 0.5).foregroundStyle(Brand.tabText)
             .frame(width: size, height: size)
             .background(Brand.paper, in: RoundedRectangle(cornerRadius: size * 0.22))
             .overlay(RoundedRectangle(cornerRadius: size * 0.22).strokeBorder(Brand.line))

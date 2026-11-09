@@ -19,6 +19,7 @@ struct ChatComposer: View {
     @State private var showFocus = false
     @State private var showConnectors = false
     @State private var showConnect = false
+    @State private var showSkillPins = false
     @State private var showLibraryPicker = false
     @State private var shortcut: ChatShortcut?
     @State private var dismissedShortcut: ChatShortcut?
@@ -287,6 +288,12 @@ struct ChatComposer: View {
     private var chips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
+                // 고정 목록에서 뺀 스킬도 현재 대화에 적용 중이면 해제할 수 있게 남긴다.
+                ForEach(chat.skills.filter { chat.current.skillIDs.contains($0.id) && !chat.pinnedSkillIDs.contains($0.id) }) { skill in
+                    chip(icon: skill.icon, text: skill.title, help: "적용 중인 스킬") {
+                        chat.current.skillIDs.removeAll { $0 == skill.id }
+                    }
+                }
                 if !chat.current.scope.useActivity {
                     chip(icon: "diamond", text: "기록 안 씀", help: "참고할 기록 메뉴에서 범위를 바꿀 수 있어요")
                 } else if !chat.current.scope.focus.isEmpty {
@@ -359,7 +366,7 @@ struct ChatComposer: View {
     private var skillChips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
-                ForEach(chat.skills.filter { !$0.isCustom || chat.current.skillIDs.contains($0.id) }) { skill in
+                ForEach(chat.pinnedSkills) { skill in
                     let on = chat.current.skillIDs.contains(skill.id)
                     Button {
                         if on { chat.current.skillIDs.removeAll { $0 == skill.id } } else { chat.current.skillIDs.append(skill.id) }
@@ -373,14 +380,18 @@ struct ChatComposer: View {
                     }
                     .buttonStyle(.plain).disabled(busy).accessibilityLabel("\(skill.title) \(on ? "끄기" : "켜기")")
                 }
-                Button {
-                    state.customizeSection = .skills
-                    state.selectedTab = .connectors
-                } label: {
-                    Image(systemName: "plus").font(.system(size: 10, weight: .medium))
+                Button { showSkillPins = true } label: {
+                    Image(systemName: "pencil").font(.system(size: 10, weight: .medium))
                         .frame(width: 22, height: 22).background(ChatPalette.soft, in: Circle())
                 }
-                .buttonStyle(.plain).disabled(busy).help("스킬 관리").accessibilityLabel("스킬 관리")
+                .buttonStyle(.plain).disabled(busy).help("표시할 스킬 편집").accessibilityLabel("표시할 스킬 편집")
+                .popover(isPresented: $showSkillPins, arrowEdge: .top) {
+                    PinnedSkillPicker(chat: chat) {
+                        showSkillPins = false
+                        state.customizeSection = .skills
+                        state.selectedTab = .connectors
+                    }
+                }
             }
         }
         .frame(height: 22)
@@ -391,10 +402,6 @@ struct ChatComposer: View {
     private var connectHost: String { URL(string: state.settings.chatEndpoint.url)?.host?.lowercased() ?? "" }
     private var connectLabel: String {
         let provider = state.settings.effectiveChatProvider
-        if provider == "codex" {
-            if case .loggedIn(_, let plan, _) = state.codexStatus, let plan, !plan.isEmpty { return "ChatGPT \(plan.prefix(1).uppercased() + plan.dropFirst())" }
-            return "ChatGPT"
-        }
         if provider == "ajou" { return "아주대 LLM API" }
         return connectHost.contains("anthropic") ? "Claude API" : "API"
     }
@@ -414,8 +421,7 @@ struct ChatComposer: View {
     @ViewBuilder private var connectionButton: some View {
         if state.settings.effectiveChatProvider == "codex" {
             HStack(spacing: 6) {
-                providerLogo("codex").frame(width: 13, height: 13)
-                Text(connectLabel).font(Brand.suit(11, .medium)).foregroundStyle(Brand.tabText)
+                providerLogo("codex").frame(width: 13, height: 13).accessibilityLabel("ChatGPT")
                 Rectangle().fill(Brand.line).frame(width: 1, height: 10)
                 ChatModelMenu(name: modelName, fontSize: 11, openSettings: openSettings)
             }.fixedSize()
