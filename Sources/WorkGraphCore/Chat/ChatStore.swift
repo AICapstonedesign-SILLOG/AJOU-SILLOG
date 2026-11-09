@@ -379,10 +379,16 @@ public struct ChatStore: Sendable {
     /// Returns: 없음. 메시지·결과물을 함께 삭제하고 예약의 결과 링크만 해제한다.
     /// Raises: DB 쓰기 오류. 승인된 예약과 원본 활동 기록은 유지한다.
     public func deleteConversation(_ conversationID: String) throws {
+        try deleteConversations([conversationID])
+    }
+
+    public func deleteConversations(_ conversationIDs: [String]) throws {
         try db.writer.write { conn in
-            try conn.execute(sql: "DELETE FROM app_conversations WHERE id = ?", arguments: [conversationID])
-            try ProjectStore.removeFromProposals("conversation:\(conversationID)", conn)
-            try conn.execute(sql: "UPDATE app_automations SET payload = json_remove(payload, '$.lastConversationID') WHERE json_extract(payload, '$.lastConversationID') = ?", arguments: [conversationID])
+            for conversationID in Set(conversationIDs) {
+                try conn.execute(sql: "DELETE FROM app_conversations WHERE id = ?", arguments: [conversationID])
+                try ProjectStore.removeFromProposals("conversation:\(conversationID)", conn)
+                try conn.execute(sql: "UPDATE app_automations SET payload = json_remove(payload, '$.lastConversationID') WHERE json_extract(payload, '$.lastConversationID') = ?", arguments: [conversationID])
+            }
         }
     }
 

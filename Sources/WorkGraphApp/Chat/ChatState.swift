@@ -142,15 +142,33 @@ final class ChatState: ObservableObject {
     /// Returns: 없음. 응답 생성 중인 대화는 삭제하지 않는다.
     /// Raises: 없음. 삭제 오류는 화면에 표시한다.
     func delete(_ conversation: ChatConversation) {
-        guard activeMessage?.conversationID != conversation.id else { return }
         do {
-            try store.deleteConversation(conversation.id)
-            try reload()
-            projects.reload()
-            if current.id == conversation.id {
-                if let next = conversations.first { select(next) } else { newConversation() }
-            }
+            try deleteConversations([conversation.id])
         } catch { self.error = error.localizedDescription }
+    }
+
+    func deleteConversations(_ ids: Set<String>) throws {
+        try checkEditable(ids)
+        try store.deleteConversations(Array(ids))
+        try reload()
+        projects.reload()
+        if ids.contains(current.id) {
+            if let next = conversations.first { select(next) } else { newConversation() }
+        }
+    }
+
+    func moveConversations(_ ids: Set<String>, to projectID: String?) throws {
+        try checkEditable(ids)
+        try ProjectStore(db).move(ids.map { "conversation:\($0)" }, to: projectID)
+        try reload()
+        projects.reload()
+        if ids.contains(current.id) { current.projectID = projectID; refreshFocusChoices() }
+    }
+
+    private func checkEditable(_ ids: Set<String>) throws {
+        if let activeMessage, ids.contains(activeMessage.conversationID) {
+            throw ChatToolError.unavailable("응답 중인 채팅은 완료 후 이동하거나 삭제할 수 있어요.")
+        }
     }
 
     /// Args: 없음.

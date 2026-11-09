@@ -37,7 +37,7 @@ struct ChatView: View {
     private var layout: some View {
         HStack(spacing: 0) {
             if sidebarVisible {
-                ChatSidebar(chat: chat, pane: $pane, isSearching: showSearch,
+                ChatSidebar(chat: chat, projects: chat.projects, pane: $pane, isSearching: showSearch,
                             onSearch: { showSearch = true },
                             onSchedules: { showSchedules = true },
                             onCollapse: { sidebarVisible = false },

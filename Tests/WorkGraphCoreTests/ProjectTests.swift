@@ -81,6 +81,33 @@ final class ProjectTests: XCTestCase {
         XCTAssertEqual(try store.proposals().count, 3)
     }
 
+    func testBulkConversationMoveAndDeleteOnlyAffectSelectedItems() throws {
+        let db = try WGDatabase.inMemory(), store = ProjectStore(db), chats = ChatStore(db)
+        let a = try conversation(db), b = try conversation(db), other = try conversation(db)
+        let project = ChatProject(title: "문서", goal: "작성")
+        try store.save(project)
+        let selected = [a.id, b.id].map { "conversation:\($0)" }
+        try store.move(selected, to: project.id)
+        XCTAssertEqual(try chats.conversations().filter { $0.projectID == project.id }.count, 2)
+        XCTAssertNil(try chats.conversations().first { $0.id == other.id }?.projectID)
+        try store.move(selected, to: nil)
+        XCTAssertTrue(try chats.conversations().allSatisfy { $0.projectID == nil })
+        try chats.deleteConversations([a.id, b.id])
+        XCTAssertEqual(try chats.conversations().map(\.id), [other.id])
+        XCTAssertTrue(try chats.messages(a.id).isEmpty)
+        XCTAssertTrue(try chats.messages(b.id).isEmpty)
+        XCTAssertFalse(try chats.messages(other.id).isEmpty)
+    }
+
+    func testBulkMoveRollsBackWhenAnyConversationIsMissing() throws {
+        let db = try WGDatabase.inMemory(), store = ProjectStore(db)
+        let chat = try conversation(db), project = ChatProject(title: "문서", goal: "작성")
+        try store.save(project)
+        XCTAssertThrowsError(try store.move(["conversation:\(chat.id)", "conversation:missing"], to: project.id))
+        XCTAssertNil(try ChatStore(db).conversations().first?.projectID)
+        XCTAssertTrue(try db.writer.read { try String.fetchAll($0, sql: "SELECT decision FROM project_reviewed").isEmpty })
+    }
+
     private func task(_ db: WGDatabase, title: String = "문서 작성") throws -> Int64 {
         try db.writer.write { try GraphTx($0).upsertNode(label: "Task", key: UUID().uuidString, subtype: nil, title: title, props: [:], at: 10) }
     }

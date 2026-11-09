@@ -4,6 +4,7 @@ import WorkGraphCore
 /// 채팅 탭 왼쪽 대화 목록 (Figma CH-02, 29, 30). 폭 261, 오른쪽 선은 바깥에서 그린다.
 struct ChatSidebar: View {
     @ObservedObject var chat: ChatState
+    @ObservedObject var projects: ProjectState
     @Binding var pane: ChatPane
     var isSearching: Bool
     var onSearch: () -> Void
@@ -14,6 +15,12 @@ struct ChatSidebar: View {
 
     @State private var pinnedOpen = true
     @State private var recentOpen = true
+    @State private var projectsOpen = true
+    @State private var collapsedProjects: Set<String> = []
+    @State private var selecting = false
+    @State private var selected: Set<String> = []
+    @State private var confirmDelete = false
+    @State private var selectionError: String?
     @State private var hoverSection: String?
 
     var body: some View {
@@ -38,9 +45,19 @@ struct ChatSidebar: View {
                         }.onHover { hoverSection = $0 ? "pinned" : (hoverSection == "pinned" ? nil : hoverSection) }
                     }
                     VStack(alignment: .leading, spacing: 0) {
+                        sectionHeader("프로젝트", open: $projectsOpen)
+                        if projectsOpen {
+                            ForEach(projects.projects) { project in projectRow(project) }
+                            if projects.projects.isEmpty {
+                                Text("아직 프로젝트가 없어요").font(Brand.suit(11)).foregroundStyle(Brand.gray)
+                                    .padding(.horizontal, 10).padding(.vertical, 6)
+                            }
+                        }
+                    }.onHover { hoverSection = $0 ? "프로젝트" : nil }
+                    VStack(alignment: .leading, spacing: 0) {
                         sectionHeader("최근 항목", open: $recentOpen)
                         if recentOpen {
-                            ForEach(chat.recentConversations) { conversationRow($0) }
+                            ForEach(selecting ? chat.conversations : chat.recentConversations) { conversationRow($0) }
                             Button { pane = .allConversations } label: {
                                 Text("모두 보기").font(Brand.suit(12)).foregroundStyle(Brand.tabText)
                                     .padding(.leading, 10).frame(height: 32, alignment: .leading)
@@ -50,10 +67,20 @@ struct ChatSidebar: View {
                     }.onHover { hoverSection = $0 ? "recent" : (hoverSection == "recent" ? nil : hoverSection) }
                 }.padding(.horizontal, 12).padding(.top, 14).padding(.bottom, 16)
             }
+            if selecting { selectionActions }
         }
         .frame(width: ChatPalette.sidebarWidth, alignment: .topLeading)
         .frame(maxHeight: .infinity, alignment: .top)
         .background(Brand.paper)
+        .alert("채팅 \(selected.count)개를 삭제할까요?", isPresented: $confirmDelete) {
+            Button("취소", role: .cancel) { }
+            Button("삭제", role: .destructive) {
+                performSelectionAction { try chat.deleteConversations(selected) }
+            }
+        } message: {
+            Text("선택한 채팅의 메시지와 결과물이 삭제됩니다. 되돌릴 수 없습니다.")
+        }
+        .onChange(of: chat.conversations.map(\.id)) { _, ids in selected.formIntersection(ids) }
     }
 
     private var isProjectPane: Bool {
@@ -68,7 +95,14 @@ struct ChatSidebar: View {
             }.buttonStyle(.plain).help("목록 접기").accessibilityLabel("목록 접기")
             Text("채팅").font(Brand.suit(20, .bold)).foregroundStyle(Brand.ink)
             Spacer(minLength: 0)
-        }.padding(.leading, 14).padding(.top, 14).frame(height: 56, alignment: .topLeading)
+            Button {
+                selecting.toggle(); selected = []; selectionError = nil
+            } label: {
+                Image(systemName: selecting ? "checkmark.circle.fill" : "checklist")
+                    .font(.system(size: 15)).foregroundStyle(Brand.tabText).frame(width: 28, height: 24)
+            }.buttonStyle(.plain).help(selecting ? "선택 취소" : "채팅 선택")
+                .accessibilityLabel(selecting ? "선택 취소" : "채팅 선택")
+        }.padding(.horizontal, 14).padding(.top, 14).frame(height: 56, alignment: .topLeading)
     }
 
     private func navRow(_ title: String, _ icon: String, selected: Bool, trailing: String? = nil,
@@ -89,7 +123,7 @@ struct ChatSidebar: View {
 
     private func sectionHeader(_ title: String, open: Binding<Bool>) -> some View {
         // 삼각형은 커서가 구역 안에 있을 때, 접힌 구역은 항상 보인다 (CH-76, 77)
-        let key = title == "고정됨" ? "pinned" : "recent"
+        let key = title == "고정됨" ? "pinned" : title == "최근 항목" ? "recent" : title
         return Button { open.wrappedValue.toggle() } label: {
             HStack(spacing: 6) {
                 Text(title).font(Brand.suit(12))
@@ -101,12 +135,86 @@ struct ChatSidebar: View {
         }.buttonStyle(.plain)
     }
 
-    private func conversationRow(_ item: ChatConversation) -> some View {
-        ConversationRow(item: item, isCurrent: pane == .chat && chat.current.id == item.id,
+    @ViewBuilder private func conversationRow(_ item: ChatConversation) -> some View {
+        if selecting {
+            Button {
+                if !selected.insert(item.id).inserted { selected.remove(item.id) }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: selected.contains(item.id) ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(selected.contains(item.id) ? Brand.accent : Brand.gray)
+                    Text(item.title).lineLimit(1)
+                    Spacer(minLength: 0)
+                }.font(Brand.suit(12)).foregroundStyle(Brand.tabText)
+                    .padding(.horizontal, 10).frame(height: 32).contentShape(Rectangle())
+            }.buttonStyle(.plain).hoverHighlight(cornerRadius: 5)
+                .accessibilityLabel("\(selected.contains(item.id) ? "선택 해제" : "선택"): \(item.title)")
+                .disabled(chat.activeMessage?.conversationID == item.id)
+        } else {
+            ConversationRow(item: item, isCurrent: pane == .chat && chat.current.id == item.id,
                         isBusy: chat.activeMessage?.conversationID == item.id,
                         open: { chat.select(item); pane = .chat },
                         context: { menu(item) }, pop: { close in popMenu(item, close) })
             .padding(.vertical, 1)     // 줄 30 + 사이 2 = 피치 32 (Figma CH-02)
+        }
+    }
+
+    private func projectRow(_ project: ChatProject) -> some View {
+        let open = !collapsedProjects.contains(project.id)
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 0) {
+                Button {
+                    if !collapsedProjects.insert(project.id).inserted { collapsedProjects.remove(project.id) }
+                } label: {
+                    Image(systemName: open ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 9)).frame(width: 20, height: 32).contentShape(Rectangle())
+                }.buttonStyle(.plain).accessibilityLabel("\(project.title) \(open ? "접기" : "펼치기")")
+                Button {
+                    chat.newConversation(projectID: project.id); pane = .project(project.id)
+                } label: {
+                    Label(project.title, systemImage: "folder").font(Brand.suit(13)).lineLimit(1)
+                        .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading).contentShape(Rectangle())
+                }.buttonStyle(.plain)
+            }.foregroundStyle(Brand.tabText).hoverHighlight(cornerRadius: 5)
+            if open {
+                ForEach(chat.conversations.filter { $0.projectID == project.id }) { item in
+                    conversationRow(item).padding(.leading, 22)
+                }
+            }
+        }
+    }
+
+    private var selectionActions: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("\(selected.count)개 선택").font(Brand.suit(12, .medium))
+                Spacer()
+                Button("전체 선택") {
+                    selected = Set(chat.conversations.filter { $0.id != chat.activeMessage?.conversationID }.map(\.id))
+                }.buttonStyle(.plain).font(Brand.suit(11))
+                Button("완료") { selecting = false; selected = []; selectionError = nil }
+                    .buttonStyle(.plain).font(Brand.suit(11))
+            }
+            HStack {
+                Menu {
+                    ForEach(projects.projects) { project in
+                        Button(project.title) { performSelectionAction { try chat.moveConversations(selected, to: project.id) } }
+                    }
+                    Divider()
+                    Button("일반 채팅으로 이동") { performSelectionAction { try chat.moveConversations(selected, to: nil) } }
+                } label: { Label("이동", systemImage: "folder") }
+                Button { confirmDelete = true } label: { Label("삭제", systemImage: "trash") }
+                    .foregroundStyle(PopRow.red)
+            }.disabled(selected.isEmpty)
+            if let selectionError { Text(selectionError).font(Brand.suit(11)).foregroundStyle(.red) }
+        }.foregroundStyle(Brand.tabText).padding(12)
+            .overlay(alignment: .top) { Rectangle().fill(Brand.line).frame(height: 1) }
+    }
+
+    private func performSelectionAction(_ action: () throws -> Void) {
+        do {
+            try action(); selected = []; selecting = false; selectionError = nil
+        } catch { selectionError = error.localizedDescription }
     }
 
     /// 오른쪽 클릭 메뉴

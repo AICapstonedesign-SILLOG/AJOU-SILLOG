@@ -273,10 +273,16 @@ public struct ProjectStore: Sendable {
     }
 
     public func move(_ itemID: String, to projectID: String?) throws {
+        try move([itemID], to: projectID)
+    }
+
+    public func move(_ itemIDs: [String], to projectID: String?) throws {
         try db.writer.write { conn in
-            try Self.move(itemID, to: projectID, conn)
-            try Self.mark(itemID, decision: "manual", conn)
-            try Self.removeFromProposals(itemID, conn)
+            for itemID in Set(itemIDs) {
+                try Self.move(itemID, to: projectID, conn)
+                try Self.mark(itemID, decision: "manual", conn)
+                try Self.removeFromProposals(itemID, conn)
+            }
         }
     }
 
