@@ -65,9 +65,18 @@ struct LibraryView: View {
     @State private var preview: ChatLibraryItem?
     @State private var deleting: ChatLibraryItem?
     @State private var recordingPreview: Recording?
+    @State private var sort: Sort = .modified
+    @State private var editing: ChatLibraryItem?
+    @State private var editTitle = ""
+    var title: String?
 
-    init(library: LibraryState, initialKind: String = "home") {
+    enum Sort: String, CaseIterable {
+        case title = "제목", kind = "종류", modified = "수정일"
+    }
+
+    init(library: LibraryState, initialKind: String = "home", title: String? = nil) {
         self.library = library
+        self.title = title
         _kind = State(initialValue: initialKind)
     }
 
@@ -87,7 +96,26 @@ struct LibraryView: View {
         let recordings: [LibraryEntry] = showRecordings
             ? state.recordings.filter { query.isEmpty || $0.displayTitle.localizedCaseInsensitiveContains(query) }.map { LibraryEntry.recording($0) }
             : []
-        return (items + recordings).sorted { $0.date > $1.date }
+        let dated = (items + recordings).map { ($0, modified($0)) }
+        return dated.sorted { left, right in
+            switch sort {
+            case .title:
+                let order = left.0.title.localizedStandardCompare(right.0.title)
+                if order != .orderedSame { return order == .orderedAscending }
+            case .kind:
+                let order = LibraryLook.name(left.0.kind).localizedStandardCompare(LibraryLook.name(right.0.kind))
+                if order != .orderedSame { return order == .orderedAscending }
+            case .modified: break
+            }
+            return left.1 == right.1 ? left.0.id < right.0.id : left.1 > right.1
+        }.map { $0.0 }
+    }
+
+    private func modified(_ entry: LibraryEntry) -> Double {
+        switch entry {
+        case .item(let item): library.store.modifiedAt(for: item)
+        case .recording(let recording): recording.readyAt ?? recording.endedAt ?? recording.startedAt
+        }
     }
 
     private var emptyTitle: String {
@@ -96,8 +124,10 @@ struct LibraryView: View {
     }
     var body: some View {
         HStack(spacing: 0) {
-            sidebar
-            Rectangle().fill(Brand.hairline).frame(width: 1)
+            if title == nil {
+                sidebar
+                Rectangle().fill(Brand.hairline).frame(width: 1)
+            }
             content
         }
         .sheet(item: $preview) { LibraryPreview(library: library, item: $0) }
@@ -106,13 +136,19 @@ struct LibraryView: View {
         .onChange(of: query) { _, text in if kind == "home", !text.isEmpty { kind = "" } }
         .task(id: library.items.map(\.id)) {
             var found: [String: LibraryTextInfo] = [:]
-            for item in library.items where item.kind == "note" || item.kind == "generated" { found[item.id] = LibraryTextInfo.read(library.store.url(for: item)) }
+            for item in library.items where item.kind == "note" { found[item.id] = LibraryTextInfo.read(library.store.url(for: item)) }
             infos = found
+        }
+        .alert("제목 바꾸기", isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } })) {
+            TextField("제목", text: $editTitle)
+            Button("취소", role: .cancel) { editing = nil }
+            Button("저장") { if let editing { library.rename(editing, title: editTitle) }; editing = nil }
+                .disabled(editTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
         .alert("자료를 삭제할까요?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
             Button("취소", role: .cancel) { deleting = nil }
             Button("삭제", role: .destructive) { if let deleting { library.delete(deleting) }; deleting = nil }
-        } message: { Text("보관함의 복사본과 모든 대화 연결이 삭제됩니다. 업로드한 원본 파일과 기존 채팅 답변은 남습니다.") }
+        } message: { Text("결과물의 복사본과 모든 대화 연결이 삭제됩니다. 업로드한 원본 파일과 기존 채팅 답변은 남습니다.") }
     }
 
     /// 유리 사이드바: 파일 올리기 버튼, 종류 필터 (보관함 이름은 위쪽 글자 탭이 보인다)
@@ -153,11 +189,20 @@ struct LibraryView: View {
 
     private var content: some View {
         VStack(alignment: .leading, spacing: 0) {
+            if let title {
+                HStack {
+                    Text(title).font(Brand.suit(20, .bold)).foregroundStyle(Brand.ink)
+                    Spacer()
+                    Button { library.importFiles() } label: { Label("파일 업로드", systemImage: "plus") }
+                        .buttonStyle(BrandButtonStyle()).disabled(library.busy)
+                }.padding(.horizontal, 28).padding(.top, 22)
+            }
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").font(.system(size: 12)).foregroundStyle(Brand.gray)
                 TextField("자료 이름 검색", text: $query).textFieldStyle(.plain).font(Brand.suit(12)).foregroundStyle(Brand.text)
             }.brandField().padding(.horizontal, 34).padding(.top, 16)
                 .help("업로드한 파일, 생성한 결과물, 저장한 답변과 녹음을 모아 둬요. 프로젝트나 대화에 연결한 자료만 답변에 써요.")
+            if title != nil { sortAndFilter }
             if let error = library.error {
                 Text(error).font(Brand.suit(12)).foregroundStyle(.red).textSelection(.enabled).padding(.horizontal, 34).padding(.top, 10)
             }
@@ -174,6 +219,22 @@ struct LibraryView: View {
         }.frame(maxWidth: .infinity, maxHeight: .infinity).background(.white)
     }
 
+    private var sortAndFilter: some View {
+        HStack(spacing: 12) {
+            Picker("종류", selection: $kind) {
+                Text("홈").tag("home")
+                Text("전체 종류").tag("")
+                ForEach(LibraryLook.order, id: \.self) { Text(LibraryLook.name($0)).tag($0) }
+            }
+            Picker("정렬", selection: $sort) {
+                ForEach(Sort.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            }.onChange(of: sort) { _, _ in if kind == "home" { kind = "" } }
+            Spacer()
+        }
+        .pickerStyle(.menu)
+        .padding(.horizontal, 34).padding(.top, 12)
+    }
+
     private var actions: LibraryActions {
         LibraryActions(
             open: { entry in
@@ -183,6 +244,8 @@ struct LibraryView: View {
                 }
             },
             export: { library.export($0) }, delete: { deleting = $0 },
+            rename: { editing = $0; editTitle = $0.title },
+            url: { library.store.url(for: $0) }, modified: { modified($0) },
             projectCount: { library.projectIDs($0).count })
     }
 
@@ -193,7 +256,7 @@ struct LibraryView: View {
         case "home": LibraryHome(items: library.items, recordings: state.recordings, tasks: state.taskList, itemFocuses: library.itemFocuses, actions: actions)
         case "recording": LibraryRecordingList(recordings: recs, actions: actions)
         case "upload": LibraryUploadList(items: mine, actions: actions)
-        case "generated": LibraryGeneratedGrid(items: mine, actions: actions, infos: infos)
+        case "generated": LibraryGeneratedGrid(items: mine, actions: actions)
         case "note": LibraryNoteList(items: mine, actions: actions, infos: infos)
         default: LibraryAllList(entries: entries, actions: actions)
         }

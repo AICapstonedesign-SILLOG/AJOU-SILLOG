@@ -7,6 +7,7 @@ public struct ChatLibraryItem: Codable, Identifiable, Equatable, Sendable {
     public var filename: String
     public var kind: String
     public var createdAt = Date().timeIntervalSince1970
+    public var updatedAt: Double?
     public var extractionNote = ""
     public var originID: String?
     public init(title: String, filename: String, kind: String) {
@@ -59,18 +60,38 @@ public struct LibraryStore: Sendable {
         directory.appendingPathComponent(item.id, isDirectory: true).appendingPathComponent(item.filename)
     }
 
+    public func modifiedAt(for item: ChatLibraryItem) -> Double {
+        let fileDate = (try? url(for: item).resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate?.timeIntervalSince1970
+        if let updatedAt = item.updatedAt { return max(updatedAt, fileDate ?? updatedAt) }
+        return fileDate ?? item.createdAt
+    }
+
+    public func rename(_ id: String, title: String) throws {
+        let name = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        try db.writer.write { conn in
+            guard let payload = try String.fetchOne(conn, sql: "SELECT payload FROM app_library WHERE id = ?", arguments: [id]) else { return }
+            var item = try JSONDecoder().decode(ChatLibraryItem.self, from: Data(payload.utf8))
+            guard item.title != name else { return }
+            item.title = name
+            item.updatedAt = Date().timeIntervalSince1970
+            let json = String(decoding: try JSONEncoder().encode(item), as: UTF8.self)
+            try conn.execute(sql: "UPDATE app_library SET payload = ? WHERE id = ?", arguments: [json, id])
+        }
+    }
+
     /// Args: source는 사용자가 선택한 원본 파일이다.
     /// Returns: 복사본과 검색용 본문이 저장된 자료.
     /// Raises: 크기·인증 경로·파일 복사·DB 오류. 추출 실패는 원본과 안내를 보관한다.
     @discardableResult public func importFile(_ source: URL) throws -> ChatLibraryItem {
         let source = source.resolvingSymlinksInPath()
         guard !source.pathComponents.contains(where: ChatTools.isPrivate) else { throw ChatToolError.unavailable("인증 정보가 포함된 파일은 보관함에 추가할 수 없습니다.") }
-        let values = try source.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
+        let values = try source.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey])
         guard values.isRegularFile == true, (values.fileSize ?? 0) <= 50_000_000 else {
             throw ChatToolError.unavailable("50MB 이하의 파일을 선택하세요. 폴더는 원본 연결로 추가할 수 있습니다.")
         }
         let item = ChatLibraryItem(title: source.lastPathComponent, filename: source.lastPathComponent, kind: "upload")
-        return try write(item, data: Data(contentsOf: source)) { url in
+        return try write(item, data: Data(contentsOf: source), modifiedAt: values.contentModificationDate) { url in
             do { return try FileTextExtractor.read(url) }
             catch { return ("", "원본은 보관했습니다. 본문 추출 실패: \(error.localizedDescription)") }
         }
@@ -108,12 +129,13 @@ public struct LibraryStore: Sendable {
         }
     }
 
-    private func write(_ value: ChatLibraryItem, data: Data, extract: (URL) throws -> (String, String)) throws -> ChatLibraryItem {
+    private func write(_ value: ChatLibraryItem, data: Data, modifiedAt: Date? = nil, extract: (URL) throws -> (String, String)) throws -> ChatLibraryItem {
         var item = value
         let file = url(for: item), folder = file.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         do {
             try data.write(to: file, options: .atomic)
+            if let modifiedAt { try FileManager.default.setAttributes([.modificationDate: modifiedAt], ofItemAtPath: file.path) }
             let (text, note) = try extract(file); item.extractionNote = note
             let payload = String(decoding: try JSONEncoder().encode(item), as: UTF8.self)
             try db.writer.write { conn in

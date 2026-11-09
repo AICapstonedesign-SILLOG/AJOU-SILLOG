@@ -89,6 +89,7 @@ struct ChatView: View {
 
     var body: some View {
         sheets
+        .onAppear { if state.showsChatResultsOnOpen { pane = .results } }
         .alert("이름 바꾸기", isPresented: $showRename) {
             TextField("대화 이름", text: $conversationName)
             Button("취소", role: .cancel) {}
@@ -135,7 +136,7 @@ struct ChatView: View {
                     Color.white.onAppear { pane = .projects }     // 삭제된 프로젝트
                 }
             case .results:
-                ChatResultsView(library: library)
+                LibraryView(library: library, initialKind: "", title: "결과물")
             }
         }.frame(maxWidth: .infinity, maxHeight: .infinity).background(.white)
     }
@@ -227,7 +228,7 @@ struct ChatView: View {
                 }
             }.frame(width: ChatPalette.columnWidth)
             Spacer(minLength: 0)
-            Text("질문과 조회한 자료는 연결한 AI로 전송돼요. 웹 검색과 커넥터은 허용한 범위만 사용해요.")
+            Text("질문과 조회한 자료는 연결한 AI로 전송돼요. 웹 검색과 커넥터는 허용한 범위만 사용해요.")
                 .font(Brand.suit(9)).foregroundStyle(Brand.gray).lineLimit(1).padding(.bottom, 14)
         }.frame(maxWidth: .infinity, maxHeight: .infinity)
     }

@@ -59,7 +59,7 @@ final class MenuLayoutTests: XCTestCase {
     ]
 
     func testTheRailContainsAllTabs() {
-        XCTAssertEqual(MainWindow.Tab.allCases.map(\.rawValue), ["그래프", "채팅", "기록 자료", "캘린더", "설정", "플러그인"])
+        XCTAssertEqual(MainWindow.Tab.allCases.map(\.rawValue), ["그래프", "채팅", "정리", "커넥터", "설정", "캘린더"])
     }
 
     // 업무 목록은 그래프 탭에만: 채팅·기록 자료·설정에서는 본문만
@@ -229,7 +229,7 @@ final class MenuLayoutTests: XCTestCase {
     }
 
     func testOpeningFileSuggestionsGoesToTheFilesSection() {
-        let state = AppState(preview: { s in s.phase = .ready; s.selectedTab = .graph; s.recordsSection = .library })
+        let state = AppState(preview: { s in s.phase = .ready; s.selectedTab = .graph })
         state.openFileSuggestions()
         XCTAssertEqual(state.selectedTab, .records)
         XCTAssertEqual(state.recordsSection, .files)

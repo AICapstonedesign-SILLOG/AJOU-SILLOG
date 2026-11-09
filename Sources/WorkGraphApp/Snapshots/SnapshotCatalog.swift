@@ -114,6 +114,19 @@ enum SnapshotCatalog {
                 s.phase = .ready; s.status = collector(); s.taskList = recentTasks
                 s.selectedTab = .settings; s.settingsSection = .ai
             },
+            shot("ST-AI-usage", MainWindow(), size: window) { s in
+                s.phase = .ready; s.status = collector(); s.selectedTab = .settings; s.settingsSection = .ai
+                s.codexStatus = .loggedIn(email: "sillog@example.com", plan: "plus", expiresAt: nil)
+                let now = Date().timeIntervalSince1970
+                s.codexUsage = .init(planType: "plus", primary: .init(usedPercent: 28, windowSeconds: 18_000, resetAt: now + 3_600),
+                                     secondary: .init(usedPercent: 57, windowSeconds: 604_800, resetAt: now + 86_400))
+                let models = [CodexModel(slug: "demo-judge", displayName: "GPT 판단 모델", defaultEffort: nil),
+                              CodexModel(slug: "demo-organize", displayName: "GPT 정리 모델", defaultEffort: nil),
+                              CodexModel(slug: "demo-chat", displayName: "GPT 채팅 모델", defaultEffort: nil)]
+                s.codexModels = models; s.chatCodexModels = models
+                s.settings.judgeCodexModel = "demo-judge"; s.settings.codexModel = "demo-organize"
+                s.settings.chatSameAsOrganize = false; s.settings.chatCodexModel = "demo-chat"
+            },
             shot("ST-AI-AJOU", MainWindow(), size: window) { s in
                 s.phase = .ready; s.status = collector(); s.taskList = recentTasks
                 s.settings.llmProvider = "ajou"; s.settings.chatProvider = "ajou"; s.settings.ajouModel = "gpt-6-luna"; s.settings.chatAjouModel = "my-custom-model"
@@ -272,7 +285,8 @@ enum SnapshotCatalog {
         guard let database = try? WGDatabase.inMemory() else { return [] }
         let state = AppState(preview: { s in
             s.phase = .ready; s.status = collector(); s.selectedTab = .chat
-            s.settings.chatProvider = "codex"; s.settings.chatCodexModel = "gpt-6-luna"
+            s.settings.chatProvider = "codex"; s.settings.chatCodexModel = "gpt-6-luna"; s.settings.chatSameAsOrganize = false
+            s.codexStatus = .loggedIn(email: nil, plan: "plus", expiresAt: nil)
             s.chatCodexModels = [CodexModel(slug: "gpt-6-luna", displayName: "GPT-6 Luna", defaultEffort: nil),
                                  CodexModel(slug: "gpt-6", displayName: "GPT-6", defaultEffort: nil)]
             let offline = OpenAICompatClient(baseURL: URL(string: "http://localhost:5010/v1")!, model: "preview", apiKey: nil)   // 그리기만 하고 부르지 않는다
@@ -495,10 +509,17 @@ enum SnapshotCatalog {
         recording.id = nil
         _ = try? RecordingStore(database).insert(recording)
         let state = AppState(preview: { s in
-            s.phase = .ready; s.status = collector(); s.selectedTab = .records; s.recordsSection = .library
+            s.phase = .ready; s.status = collector(); s.selectedTab = .chat; s.showsChatResultsOnOpen = true
             s.recordings = (try? RecordingStore(database).all()) ?? []
             let offline = OpenAICompatClient(baseURL: URL(string: "http://localhost:5010/v1")!, model: "preview", apiKey: nil)   // 그리기만 하고 부르지 않는다
-            s.chat = ChatState(db: database, makeClient: { .model(offline) }, makeProjectClient: { offline })
+            let chat = ChatState(db: database, makeClient: { .model(offline) }, makeProjectClient: { offline })
+            s.chat = chat
+            _ = try? chat.library.store.saveArtifact(.init(title: "회의 요약", format: "html", content: "<h1>회의 요약</h1><p>확인한 내용과 다음 할 일</p>"))
+            _ = try? chat.library.store.saveResponse(.init(conversationID: "preview", role: "assistant", text: "검토한 변경 사항입니다."), title: "검토 답변")
+            let sample = Bundle.main.url(forResource: "github", withExtension: "png", subdirectory: "ConnectorIcons")
+                ?? Bundle.module.url(forResource: "github", withExtension: "png", subdirectory: "ConnectorIcons")
+            if let sample { _ = try? chat.library.store.importFile(sample) }
+            chat.library.reload()
         }, database: database)
         return Snapshot(name: "REC-05", size: window, view: AnyView(MainWindow().environmentObject(state)))
     }

@@ -212,7 +212,7 @@ final class ChatFocusUITests: XCTestCase {
     }
 
     func testTheLibraryHasNoProjectFilter() throws {
-        let text = try text { s in s.selectedTab = .records; s.recordsSection = .library }
+        let text = try text { s in s.selectedTab = .chat; s.showsChatResultsOnOpen = true }
         XCTAssertTrue(text.contains("전체종류"), text)
         XCTAssertFalse(text.contains("전체프로젝트"), "보관함에 프로젝트 걸러보기가 없다: \(text)")
     }

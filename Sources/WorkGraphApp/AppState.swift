@@ -36,6 +36,7 @@ final class AppState: ObservableObject {
     /// 로그인해야 쓸 수 있다. `.ready` 가 되기 전에는 수집기도 배치도 돌지 않는다.
     @Published var phase: AppPhase = .login
     @Published var selectedTab: MainWindow.Tab = MainWindow.initialTab
+    var showsChatResultsOnOpen = ["results", "library"].contains(ProcessInfo.processInfo.environment["WORKGRAPH_TAB"] ?? "")
     /// 기록 자료 탭에서 보고 있는 구역 (메뉴 막대·알림이 파일 구역으로 바로 연다)
     @Published var recordsSection: RecordsView.Section = MainWindow.initialRecordsSection
     /// 설정 탭에서 보고 있는 구역 (권한 안내가 일반으로 바로 연다)
@@ -352,7 +353,6 @@ final class AppState: ObservableObject {
         settings.llmUsesAPI ? makeOpenAIClient() : CodexResponsesClient(auth: codexAuth, model: settings.codexModel, reasoningEffort: "medium")
     }
 
-    /// 파일 정리 제안용: 알림이 바로 떠야 하므로 low
     private func makeJudge() -> ActivityJudging {
         if settings.judgeProvider != "gpt" {
             guard let endpoint = settings.judgeEndpoint else { return .unavailable("판단 모델 Jev의 API 키를 설정해 주세요.") }
@@ -372,6 +372,7 @@ final class AppState: ObservableObject {
         return .gpt(OpenAICompatClient(baseURL: url, model: model, apiKey: key.isEmpty ? nil : key))
     }
 
+    /// 파일 정리 제안용: 알림이 바로 떠야 하므로 low
     private func makeQuickClient() -> any LLMClient {
         settings.llmUsesAPI ? makeOpenAIClient() : CodexResponsesClient(auth: codexAuth, model: settings.codexModel, reasoningEffort: "low")
     }
