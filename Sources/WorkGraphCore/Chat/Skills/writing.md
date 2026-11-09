@@ -16,4 +16,6 @@ Use this for reports, progress reports (중간·최종 보고서), status update
 
 **Routing.** Before drafting, look for an official form or notice (often a downloaded file linked to its source page) and for the user's earlier documents of the same kind, and follow their requirements and structure. For a substantial document, split the gathering: records (sessions, problems, LaterItems, past decisions) to a context agent, and authorship (commits, pull requests, what the code implements) to a repository agent. In the chat reply, add the requirement check (met, not met, or unknown for each requirement) and the 확인 필요 items.
 
+**Final check.** Before drafting, identify the reader, the decision or use the document should support, and the required format. Use the supplied template's headings and order when there is one. In the final pass, check that each important claim has a source and each agreed action has the owner and date available in the records.
+
 완료 기준: the document fits its type and reader; the summary gives the status and what is asked of the reader; every claim of contribution has authorship evidence; requirements from the form or notice have been checked; open items are visible.

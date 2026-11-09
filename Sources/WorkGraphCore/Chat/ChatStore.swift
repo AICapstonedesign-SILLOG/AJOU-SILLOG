@@ -67,7 +67,7 @@ public struct ChatAutomationProposal: Codable, Equatable, Sendable {
 public struct ChatConversation: Codable, Identifiable, Sendable {
     public var id = UUID().uuidString
     public var title = "새 대화"
-    /// 비면 자동 선택(전체 지침). 예전 저장값 skillID 는 읽을 때 옮긴다.
+    /// 비면 스킬 지침을 적용하지 않는다. 예전 저장값 skillID 는 읽을 때 옮긴다.
     public var skillIDs: [String] = []
     public var scope = ChatScope()
     public var projectID: String?
@@ -205,6 +205,71 @@ public struct ChatStore: Sendable {
     }
 
     /// Args: migrator는 v16까지 등록된 마이그레이션 목록이다.
+    static func migrateSkills(_ migrator: inout DatabaseMigrator) {
+        migrator.registerMigration("v19-chat-skills") { conn in
+            try conn.execute(sql: "CREATE TABLE app_chat_skills (id TEXT PRIMARY KEY, payload TEXT NOT NULL)")
+        }
+        migrator.registerMigration("v20-chat-skill-deletions") { conn in
+            try conn.execute(sql: "CREATE TABLE app_deleted_skills (id TEXT PRIMARY KEY)")
+        }
+    }
+
+    public func skills() throws -> [ChatSkill] {
+        let defaults = try ChatSkill.load()
+        let defaultIDs = Set(defaults.map(\.id))
+        return try db.writer.read { conn in
+            let deleted = try Set(String.fetchAll(conn, sql: "SELECT id FROM app_deleted_skills"))
+            let saved = try String.fetchAll(conn, sql: "SELECT payload FROM app_chat_skills ORDER BY rowid")
+                .map { try JSONDecoder().decode(ChatSkill.self, from: Data($0.utf8)) }
+            let byID = Dictionary(uniqueKeysWithValues: saved.map { ($0.id, $0) })
+            return defaults.filter { !deleted.contains($0.id) }.map { byID[$0.id] ?? $0 }
+                + saved.filter { !defaultIDs.contains($0.id) }
+        }
+    }
+
+    @discardableResult public func addSkill(title: String, instructions: String, summary: String = "") throws -> ChatSkill {
+        let skill = ChatSkill(title: title, instructions: instructions, summary: summary)
+        return try saveSkill(skill, title: title, instructions: instructions, summary: summary, updating: false)
+    }
+
+    @discardableResult public func updateSkill(_ skill: ChatSkill, title: String, instructions: String, summary: String) throws -> ChatSkill {
+        try saveSkill(skill, title: title, instructions: instructions, summary: summary, updating: true)
+    }
+
+    public func deleteSkill(_ skill: ChatSkill) throws {
+        try db.writer.write { conn in
+            try conn.execute(sql: "DELETE FROM app_chat_skills WHERE id = ?", arguments: [skill.id])
+            if !skill.isCustom {
+                try conn.execute(sql: "INSERT OR IGNORE INTO app_deleted_skills VALUES (?)", arguments: [skill.id])
+            }
+        }
+    }
+
+    private func saveSkill(_ skill: ChatSkill, title: String, instructions: String, summary: String, updating: Bool) throws -> ChatSkill {
+        let name = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let body = instructions.trimmingCharacters(in: .whitespacesAndNewlines)
+        let description = summary.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, name.count <= 80, !body.isEmpty, body.count <= 12_000, description.count <= 200 else {
+            throw ChatToolError.unavailable("스킬 이름은 80자, 설명은 200자, 지침은 12,000자까지 입력할 수 있어요.")
+        }
+        let saved = skill.edited(title: name, instructions: body, summary: description)
+        let json = String(decoding: try JSONEncoder().encode(saved), as: UTF8.self)
+        try db.writer.write { conn in
+            if updating {
+                let deleted = try String.fetchOne(conn, sql: "SELECT id FROM app_deleted_skills WHERE id = ?", arguments: [skill.id])
+                let existing = try String.fetchOne(conn, sql: "SELECT id FROM app_chat_skills WHERE id = ?", arguments: [skill.id])
+                guard deleted == nil, !skill.isCustom || existing != nil else {
+                    throw ChatToolError.unavailable("이 스킬이 이미 삭제됐어요.")
+                }
+            }
+            try conn.execute(sql: """
+                INSERT INTO app_chat_skills (id, payload) VALUES (?, ?)
+                ON CONFLICT(id) DO UPDATE SET payload = excluded.payload
+                """, arguments: [saved.id, json])
+        }
+        return saved
+    }
+
     /// Returns: 없음. 대화 고정 칼럼 단계를 등록한다. GRDB는 등록 순서대로 돌리므로 v16 뒤에 불러야 한다.
     /// Raises: 등록 시 없음. 적용 시 DB 오류를 전달한다.
     static func migratePins(_ migrator: inout DatabaseMigrator) {

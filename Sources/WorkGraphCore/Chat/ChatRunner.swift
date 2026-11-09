@@ -1,11 +1,30 @@
 import Foundation
 
-public struct ChatSkill: Decodable, Identifiable, Sendable {
+public struct ChatSkill: Codable, Identifiable, Sendable {
     public let id: String
-    public let title: String
+    public private(set) var title: String
     public let icon: String
-    public let summary: String
-    let instructionFile: String
+    public private(set) var summary: String
+    private let instructionFile: String?
+    private var customInstructions: String?
+    public var isCustom: Bool { instructionFile == nil }
+
+    public init(title: String, instructions: String, summary: String = "") {
+        self.id = UUID().uuidString
+        self.title = title
+        self.icon = "sparkles"
+        self.summary = summary
+        self.instructionFile = nil
+        self.customInstructions = instructions
+    }
+
+    func edited(title: String, instructions: String, summary: String) -> Self {
+        var copy = self
+        copy.title = title
+        copy.summary = summary
+        copy.customInstructions = instructions
+        return copy
+    }
 
     /// Args: 없음.
     /// Returns: 앱에 포함된 여섯 스킬 정의.
@@ -19,7 +38,8 @@ public struct ChatSkill: Decodable, Identifiable, Sendable {
     /// Returns: 이 스킬의 작업 절차.
     /// Raises: 지침 리소스 누락·읽기 오류.
     public func instructions() throws -> String {
-        guard let url = Self.resourceBundle.url(forResource: instructionFile, withExtension: nil, subdirectory: "Skills") else { throw ChatToolError.unavailable("스킬 지침을 찾을 수 없습니다: \(title)") }
+        if let customInstructions { return customInstructions }
+        guard let instructionFile, let url = Self.resourceBundle.url(forResource: instructionFile, withExtension: nil, subdirectory: "Skills") else { throw ChatToolError.unavailable("스킬 지침을 찾을 수 없습니다: \(title)") }
         return try String(contentsOf: url, encoding: .utf8)
     }
 
@@ -141,15 +161,14 @@ public struct ChatRunner: Sendable {
     /// Raises: 없음.
     public init(backend: ChatBackend, tools: ChatTools) { self.backend = backend; self.tools = tools }
 
-    /// Args: history는 대화 기록, skillIDs는 선택한 스킬(비면 전체 지침), scheduled는 승인된 예약 실행 여부(예약 제안을 막는다), onEvent는 UI 업데이트이다.
+    /// Args: history는 대화 기록, skillIDs는 직접 고른 스킬, scheduled는 승인된 예약 실행 여부(예약 제안을 막는다), onEvent는 UI 업데이트이다.
     /// Returns: 답변·조회 출처·결과물·미승인 예약안.
     /// Raises: 모델·리소스 오류, 실행 한도 초과, 취소. 도구 오류는 모델에 돌려준다.
-    public func run(history: [ConversationMessage], skillIDs: [String], scheduled: Bool = false,
+    public func run(history: [ConversationMessage], skillIDs: [String], skillCatalog: [ChatSkill]? = nil, scheduled: Bool = false,
                     project: ChatProject? = nil,
                     onEvent: @escaping @Sendable (ChatRunEvent) async -> Void) async throws -> ChatRunResult {
-        let skills = try ChatSkill.load()
-        let selected = skills.filter { skillIDs.contains($0.id) }
-        let procedures = try (selected.isEmpty ? skills : selected).map { "## \($0.title)\n\(try $0.instructions())" }.joined(separator: "\n\n")
+        let selected = skillIDs.isEmpty ? [] : try (skillCatalog ?? ChatSkill.load()).filter { skillIDs.contains($0.id) }
+        let procedures = try selected.map { "## \($0.title)\n\(try $0.instructions())" }.joined(separator: "\n\n")
         var prompt = ChatSystemPrompt(template: try ChatSystemPrompt.template(), scope: tools.scope, chatModel: backend.modelName,
                                       scheduled: scheduled, skillInstructions: procedures, project: project)
         if tools.scope.useActivity { prompt.rawRecordsSince = (try? tools.search.rawRecordsSince()) ?? nil }

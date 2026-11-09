@@ -17,4 +17,6 @@ Make a CSV for checklists and roadmaps the user will track in a spreadsheet.
 
 **Routing.** For a complex project, delegate the current state to a context agent and the implementation constraints to a repository or research agent. When revising an earlier plan, find it and show what moved: completed, slipped (with the cause the records show), added, and dropped.
 
+**Final check.** Separate deliverables from activities. Give each milestone a check someone can perform, and keep dependencies and estimates distinct. If an owner, due date, or prerequisite is unknown, leave it open explicitly.
+
 완료 기준: the current state is backed by evidence; every estimate states its basis; dependencies and risks are sourced; no date is invented; the plan has a first step the user can take now.

@@ -13,4 +13,6 @@ Use this for recurring reports, monitoring, and periodic summaries. The rules un
 
 **Routing.** For complex research within a run, split it across sub-agents.
 
+**Final check.** Make the trigger, input sources, output destination, success check, and no-change behavior explicit. Define the report for a failed or incomplete lookup, so an error cannot be mistaken for no changes. Keep the sample run separate from the schedule proposal.
+
 완료 기준: one completed run shown to the user; a self-contained stored prompt with the period, sources, outline, change rule, change signals, and no-change rule; a proposal the user can approve.

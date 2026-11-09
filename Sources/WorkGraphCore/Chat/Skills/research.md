@@ -17,4 +17,6 @@ Use this to investigate a question, compare options, or synthesize evidence.
 
 **Routing.** Check the records before searching outside. Give independent subtopics to research agents along with the criteria and the sources the user already has, so they don't repeat them. When updating earlier research, find the previous artifact and report what changed, including sources that have since been updated or superseded.
 
+**Final check.** Choose comparison criteria from the user's question before collecting sources. Apply the same criteria to all options. Date information that can change and label missing evidence in the comparison rather than treating it as a negative finding.
+
 완료 기준: a direct answer; criteria drawn from the user's situation; important claims checked in the original sources, with dates; conflicts stated; implications tied to the user's records; the user's earlier reading accounted for; open questions listed.

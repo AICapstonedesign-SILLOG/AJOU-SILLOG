@@ -2,9 +2,6 @@ import XCTest
 @testable import WorkGraphCore
 
 final class ChatTests: XCTestCase {
-    /// Args: 없음.
-    /// Returns: 없음. 이름 변경 저장과 대상 대화의 메시지 삭제를 확인한다.
-    /// Raises: 테스트 DB 오류.
     func testRenameAndDeleteConversation() throws {
         let store = ChatStore(try .inMemory()), conversation = ChatConversation(), other = ChatConversation()
         try store.startTurn(conversation: conversation,
@@ -209,9 +206,68 @@ final class ChatTests: XCTestCase {
         XCTAssertFalse(sub.contains("<skill_instructions>\n"))
     }
 
-    /// Args: 없음.
-    /// Returns: 없음. 실행 정보 블록을 채우고, 하위 에이전트에는 스킬·프로젝트·기억 자료 블록을 빼는지 확인한다.
-    /// Raises: 리소스 읽기 오류.
+    func testOnlyExplicitlySelectedSkillsReachTheChatModel() async throws {
+        let db = try WGDatabase.inMemory()
+        let chatStore = ChatStore(db)
+        let custom = try chatStore.addSkill(title: "검토 절차", instructions: "검토 결과를 세 줄로 쓰세요.")
+        let catalog = try chatStore.skills()
+        let model = PromptCapture()
+        let runner = ChatRunner(client: model, tools: ChatTools(db: db, scope: .init()))
+        let history = [ConversationMessage(conversationID: "test", role: "user", text: "보고서를 조사하고 계획해 줘.")]
+        for selection in [[], ["writing"], ["research", custom.id]] {
+            _ = try await runner.run(history: history, skillIDs: selection, skillCatalog: catalog) { _ in }
+        }
+        let prompts = await model.prompts
+        XCTAssertFalse(prompts[0].contains("\n<skill_instructions>\n"))
+        XCTAssertTrue(prompts[1].contains("## 문서 작성"))
+        XCTAssertFalse(prompts[1].contains("## 리서치"))
+        XCTAssertTrue(prompts[2].contains("## 리서치"))
+        XCTAssertTrue(prompts[2].contains("검토 결과를 세 줄로 쓰세요."))
+        XCTAssertFalse(prompts[2].contains("## 문서 작성"))
+    }
+
+    func testSkillEditsAndDeletionsPersistForBundledAndCustomSkills() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let path = directory.appendingPathComponent("chat.sqlite").path
+        let store = ChatStore(try WGDatabase(path: path))
+        let bundled = try XCTUnwrap(store.skills().first)
+        let custom = try store.addSkill(title: "초안", instructions: "초안 지침", summary: "설명")
+        _ = try store.updateSkill(custom, title: "내 스킬", instructions: "내 스킬의 수정 지침", summary: "수정 설명")
+        _ = try store.updateSkill(bundled, title: "기본 스킬 수정", instructions: "기본 스킬의 수정 지침", summary: "기본 설명 수정")
+
+        let reopened = try WGDatabase(path: path)
+        let reopenedStore = ChatStore(reopened)
+        let saved = try reopenedStore.skills()
+        let savedBundled = try XCTUnwrap(saved.first { $0.id == bundled.id })
+        let savedCustom = try XCTUnwrap(saved.first { $0.id == custom.id })
+        XCTAssertFalse(savedBundled.isCustom)
+        XCTAssertTrue(savedCustom.isCustom)
+        XCTAssertEqual(savedCustom.title, "내 스킬")
+        XCTAssertEqual(savedCustom.summary, "수정 설명")
+        XCTAssertEqual(try savedBundled.instructions(), "기본 스킬의 수정 지침")
+
+        let model = PromptCapture()
+        let runner = ChatRunner(client: model, tools: ChatTools(db: reopened, scope: .init()))
+        let history = [ConversationMessage(conversationID: "test", role: "user", text: "기획서를 만들어 줘.")]
+        let chosen = [bundled.id, custom.id]
+        _ = try await runner.run(history: history, skillIDs: chosen, skillCatalog: saved) { _ in }
+
+        try reopenedStore.deleteSkill(savedBundled)
+        try reopenedStore.deleteSkill(savedCustom)
+        XCTAssertThrowsError(try store.updateSkill(bundled, title: "복원", instructions: "지침", summary: ""))
+        XCTAssertThrowsError(try store.updateSkill(custom, title: "복원", instructions: "지침", summary: ""))
+        let afterDelete = try ChatStore(WGDatabase(path: path)).skills()
+        XCTAssertFalse(afterDelete.contains { chosen.contains($0.id) })
+        XCTAssertEqual(afterDelete.count, try ChatSkill.load().count - 1)
+
+        _ = try await runner.run(history: history, skillIDs: chosen, skillCatalog: afterDelete) { _ in }
+        let prompts = await model.prompts
+        XCTAssertTrue(prompts[0].contains("기본 스킬의 수정 지침"))
+        XCTAssertTrue(prompts[0].contains("내 스킬의 수정 지침"))
+        XCTAssertFalse(prompts[1].contains("\n<skill_instructions>\n"))
+    }
+
     func testSystemPromptFillsRuntimeBlocks() throws {
         var scope = ChatScope(); scope.paths = ["/tmp/a", "/tmp/b"]; scope.useWeb = true; scope.useGitHub = true; scope.plugins = ["notion"]
         var project = ChatProject(title: "졸업 프로젝트", goal: ""); project.memoryMode = .projectOnly
@@ -250,5 +306,17 @@ private actor ScriptedChatModel: ChatModelClient {
         if messages.contains(where: { $0.calls.contains { $0.name == "create_artifact" } }) { return .init(text: "완료") }
         if messages.last?.role == "tool" { return .init(text: "", calls: [.init(id: "artifact", name: "create_artifact", arguments: ##"{"title":"결과","format":"markdown","content":"# 결과"}"##)]) }
         return .init(text: "", calls: [.init(id: "delegate", name: "delegate", arguments: #"{"tasks":[{"role":"context","task":"하위 작업"}]}"#)])
+    }
+}
+
+
+private actor PromptCapture: ChatModelClient {
+    nonisolated var modelName: String { "prompt-capture" }
+    var prompts: [String] = []
+
+    func respond(system: String, messages: [ChatModelMessage], tools: [ToolSpec],
+                 onText: @escaping @Sendable (String) async -> Void) async throws -> ChatModelReply {
+        prompts.append(system)
+        return .init(text: "완료")
     }
 }

@@ -13,4 +13,6 @@ Use this for blog posts, presentations, introduction pages, and other content wr
 
 **Routing.** For complex content, delegate the material gathering to context, repository, or research agents. In the chat reply, list the facts the user should confirm before publishing.
 
+**Final check.** State the audience and the one message they should remember. Draft in the requested medium and check that the lead, examples, and ending support that message. Use real excerpts and facts only within the agreed sharing scope.
+
 완료 기준: an artifact the user can open; one clear message; a story built from dated records; traceable facts; a tone that matches the user; nothing private or internal unless the user asked for it.
