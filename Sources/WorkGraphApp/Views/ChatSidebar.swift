@@ -138,7 +138,7 @@ struct ChatSidebar: View {
                 HStack(spacing: 8) {
                     Image(systemName: selected.contains(item.id) ? "checkmark.circle.fill" : "circle")
                         .foregroundStyle(selected.contains(item.id) ? Brand.accent : Brand.gray)
-                    Text(item.title).lineLimit(1)
+                    HoverScrollingText(text: item.title)
                     Spacer(minLength: 0)
                 }.font(Brand.suit(12)).foregroundStyle(Brand.tabText)
                     .padding(.horizontal, 10).frame(height: 32).contentShape(Rectangle())
@@ -301,8 +301,9 @@ private struct ConversationRow<Context: View, Pop: View>: View {
     var body: some View {
         HStack(spacing: 0) {
             Button(action: open) {
-                Text(item.title).font(Brand.suit(13)).foregroundStyle(isCurrent ? Brand.ink : Brand.tabText)
-                    .lineLimit(1).padding(.leading, 10)
+                HoverScrollingText(text: item.title, rowHovered: hovering)
+                    .font(Brand.suit(13)).foregroundStyle(isCurrent ? Brand.ink : Brand.tabText)
+                    .padding(.leading, 10)
                     .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading).contentShape(Rectangle())
             }.buttonStyle(.plain)
             if isBusy {

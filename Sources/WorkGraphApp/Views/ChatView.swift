@@ -240,7 +240,7 @@ struct ChatView: View {
                 }
             }
             if !chat.messages.isEmpty {
-                Text(chat.current.title).font(Brand.suit(14, .medium)).foregroundStyle(Brand.ink).lineLimit(1)
+                HoverScrollingText(text: chat.current.title).font(Brand.suit(14, .medium)).foregroundStyle(Brand.ink)
             }
             Spacer(minLength: 0)
         }.padding(.top, sidebarVisible ? 20.5 : 20)   // 목록 "채팅" 제목과 글자 바닥선을 맞춘다
