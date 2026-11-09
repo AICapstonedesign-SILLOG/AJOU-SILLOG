@@ -15,6 +15,7 @@ public struct ApplyStats: Codable, Equatable, Sendable {
     public var offTaskRows = 0
     /// 같은 목표라서 합쳐진 업무 수 (배치 뒤 합치기 단계)
     public var tasksMerged = 0
+    public var deferredJudgmentRows: Int?
 
     public init() {}
 

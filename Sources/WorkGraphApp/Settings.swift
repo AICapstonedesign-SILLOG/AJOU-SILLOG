@@ -20,8 +20,14 @@ struct AppSettings: Codable, Equatable {
     var ajouAPIKey = ""
     var ajouModel = AppSettings.ajouDefaultModel
     var chatAjouModel = AppSettings.ajouDefaultModel
-    /// 판단 모델(선택): "none" = 정리 모델이 판단, "jev" = Jev API(자기 키), "ajou" = 아주대 LLM 의 jev-latest(아주대 키)
-    var judgeProvider = "none"
+    /// 판단은 정리 설정과 별도로 저장한다. jev/ajou는 Jev 연결 방식이다.
+    var judgeProvider = "gpt"
+    var judgeGPTProvider = "codex"
+    var judgeCodexModel = CodexResponsesClient.defaultModel
+    var judgeAjouModel = AppSettings.ajouDefaultModel
+    var judgeBaseURL = "http://localhost:5010/v1"
+    var judgeAPIModel = "gpt-5.4-mini"
+    var judgeAPIKey = ""
     var jevAPIKey = ""
     /// 채팅 모델을 정리 모델과 같게 쓴다(기본). 끄면 chatProvider 와 채팅 모델을 따로 고른다
     var chatSameAsOrganize = true
@@ -65,7 +71,14 @@ struct AppSettings: Codable, Equatable {
         ajouAPIKey = try c.decodeIfPresent(String.self, forKey: .ajouAPIKey) ?? d.ajouAPIKey
         ajouModel = try c.decodeIfPresent(String.self, forKey: .ajouModel) ?? d.ajouModel
         chatAjouModel = try c.decodeIfPresent(String.self, forKey: .chatAjouModel) ?? d.chatAjouModel
-        judgeProvider = try c.decodeIfPresent(String.self, forKey: .judgeProvider) ?? d.judgeProvider
+        let oldJudge = try c.decodeIfPresent(String.self, forKey: .judgeProvider) ?? "gpt"
+        judgeProvider = ["jev", "ajou"].contains(oldJudge) ? oldJudge : "gpt"
+        judgeGPTProvider = try c.decodeIfPresent(String.self, forKey: .judgeGPTProvider) ?? llmProvider
+        judgeCodexModel = try c.decodeIfPresent(String.self, forKey: .judgeCodexModel) ?? codexModel
+        judgeAjouModel = try c.decodeIfPresent(String.self, forKey: .judgeAjouModel) ?? ajouModel
+        judgeBaseURL = try c.decodeIfPresent(String.self, forKey: .judgeBaseURL) ?? llmBaseURL
+        judgeAPIModel = try c.decodeIfPresent(String.self, forKey: .judgeAPIModel) ?? llmModel
+        judgeAPIKey = try c.decodeIfPresent(String.self, forKey: .judgeAPIKey) ?? llmAPIKey
         jevAPIKey = try c.decodeIfPresent(String.self, forKey: .jevAPIKey) ?? d.jevAPIKey
         // 예전 사용자는 채팅을 따로 골라 두었을 수 있다: 저장값이 없으면 정리와 채팅 설정이 이미 같을 때만 '같게'로 본다
         chatSameAsOrganize = try c.decodeIfPresent(Bool.self, forKey: .chatSameAsOrganize)
@@ -129,7 +142,7 @@ struct AppSettings: Codable, Equatable {
     }
     var effectiveChatCodexModel: String { chatSameAsOrganize ? codexModel : chatCodexModel }
     var chatModelName: String { chatUsesAPI ? chatEndpoint.model : effectiveChatCodexModel }
-    /// 판단 모델 연결. 안 쓰거나 키가 비어 있으면 nil (그때는 정리 모델이 판단한다)
+    /// Jev 연결. 키가 비어 있으면 판단을 대기한다.
     var judgeEndpoint: JevEndpoint? {
         switch judgeProvider {
         case "jev": return jevAPIKey.isEmpty ? nil : JevEndpoint(url: JevEndpoint.typesafeURL, model: JevEndpoint.defaultModel, key: jevAPIKey)

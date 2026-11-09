@@ -37,7 +37,9 @@ struct SettingsView: View {
         .onChange(of: state.settings) { _, _ in state.applySettings() }
         .onChange(of: state.settings.llmProvider) { _, _ in state.updateCodexModelProviders() }
         .onChange(of: state.settings.chatProvider) { _, _ in state.updateCodexModelProviders() }
-        .onAppear { state.refreshCodexStatus() }
+        .onChange(of: state.settings.judgeProvider) { _, _ in state.updateCodexModelProviders() }
+        .onChange(of: state.settings.judgeGPTProvider) { _, _ in state.updateCodexModelProviders() }
+        .onAppear { if !state.isPreview { state.refreshCodexStatus() } }
         .task {
             // 로그인 항목 상태 조회는 수 초 걸릴 수 있는 동기 XPC 호출이라 메인 스레드 밖에서 읽는다.
             let enabled = await Task.detached(priority: .utility) { SMAppService.mainApp.status == .enabled }.value
@@ -308,33 +310,21 @@ private struct SettingCheckStatus: View {
     }
 }
 
-/// 모델 알약 목록: 맨 위에 직접 입력 칸, 아래에 회사별 알약 줄. 목록에 없는 고른 값은 직접 입력 칸에 보인다.
-private struct ModelPills: View {
-    let groups: [(String, [(slug: String, label: String)])]
+private struct ModelDropdown: View {
     @Binding var selection: String
+    let models: [(String, String)]
+    var directEntry = false
 
-    private var listed: Bool { groups.contains { $0.1.contains { $0.slug == selection } } }
-    /// 목록에 없는 모델은 직접 입력칸에 보인다 (비우면 목록 첫 모델로 돌아간다)
-    private var custom: Binding<String> {
-        Binding(get: { listed ? "" : selection },
-                set: { selection = $0.isEmpty ? (groups.first?.1.first?.slug ?? "") : $0 })
+    private var choices: [(String, String)] {
+        guard !selection.isEmpty, !models.contains(where: { $0.0 == selection }) else { return models }
+        return [(selection, "\(selection) (목록에 없음)")] + models
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 0) {
-                Text("직접 입력").font(Brand.suit(11)).foregroundStyle(Brand.gray).frame(width: 62, alignment: .leading)
-                BrandInput(text: custom, placeholder: "목록에 없는 모델 이름", width: 260, height: 34)
-            }
-            ForEach(groups.indices, id: \.self) { i in
-                HStack(spacing: 0) {
-                    Text(groups[i].0).font(Brand.suit(11)).foregroundStyle(Brand.gray).frame(width: 62, alignment: .leading)
-                    HStack(spacing: 6) {
-                        ForEach(groups[i].1, id: \.slug) { model in
-                            SettingPill(on: model.slug == selection, action: { selection = model.slug }) { Text(model.label) }
-                        }
-                    }
-                }
+            if !models.isEmpty { BrandMenu(selection: $selection, options: choices, width: 260) }
+            if models.isEmpty || directEntry {
+                BrandInput(text: $selection, placeholder: "모델 이름 직접 입력", width: 260, height: 34)
             }
         }
     }
@@ -358,6 +348,8 @@ private struct ConnectionSection: View {
     let test: () -> Void
     @State private var jevResult: String?
     @State private var jevChecking = false
+    @State private var apiModels: [String] = []
+    @State private var judgeAPIModels: [String] = []
     @FocusState private var jevFocused: Bool
 
     private static let ajouGroups: [(String, [(slug: String, label: String)])] = [
@@ -391,6 +383,10 @@ private struct ConnectionSection: View {
                 }
             }
             if provider == "codex" { codexExtras }
+            else if judge == "gpt", state.settings.judgeGPTProvider == "codex" {
+                SettingCard { codexRows }
+                codexExtras
+            }
             SectionLabel("모델", top: 11, inset: 0, bottom: 0, height: 12)
             judgeRow
             if judge == "jev" { jevKeyRow }
@@ -402,6 +398,14 @@ private struct ConnectionSection: View {
         }
         .onChange(of: jevKey) { _, _ in jevResult = nil }
         .onChange(of: judge) { _, _ in jevResult = nil }
+        .task(id: [provider, baseURL, apiKey]) {
+            apiModels = await availableAPIModels(enabled: provider == "openai", address: baseURL, key: apiKey)
+        }
+        .task(id: [judge, state.settings.judgeGPTProvider, state.settings.judgeBaseURL, state.settings.judgeAPIKey]) {
+            let settings = state.settings
+            judgeAPIModels = await availableAPIModels(enabled: judge == "gpt" && settings.judgeGPTProvider == "openai",
+                                                       address: settings.judgeBaseURL, key: settings.judgeAPIKey)
+        }
     }
 
     // MARK: 줄 틀
@@ -476,19 +480,19 @@ private struct ConnectionSection: View {
                 }
             }
             if let usage = state.codexUsage {
-                SettingRow("사용량", top: 16, bottom: 7) {
+                SettingRow("남은 사용량", top: 16, bottom: 7) {
                     HStack(spacing: 18) {
                         ForEach([usage.primary, usage.secondary].compactMap { $0 }, id: \.windowSeconds) { window in
                             VStack(alignment: .leading, spacing: 2) {
                                 HStack {
                                     Text(window.label).font(Brand.suit(10)).foregroundStyle(Brand.gray)
                                     Spacer(minLength: 6)
-                                    Text("\(Int(window.usedPercent.rounded()))%").font(Brand.jost(12)).foregroundStyle(Brand.text)
+                                    Text("\(Int(window.remainingPercent.rounded()))%").font(Brand.jost(12)).foregroundStyle(Brand.text)
                                 }
                                 .frame(height: 16)
                                 Capsule().fill(Brand.line).frame(height: 3)
                                     .overlay(alignment: .leading) {
-                                        GeometryReader { g in Capsule().fill(Color(hex: 0x86756B)).frame(width: g.size.width * min(1, window.usedPercent / 100)) }
+                                        GeometryReader { g in Capsule().fill(Color(hex: 0x86756B)).frame(width: g.size.width * window.remainingPercent / 100) }
                                     }
                             }
                             .frame(width: 110)
@@ -542,17 +546,43 @@ private struct ConnectionSection: View {
 
     // MARK: 모델
 
-    /// 판단 모델(선택): 안 씀, Jev API, 아주대 LLM jev-latest. 아주대 알약은 연결 방식이 아주대일 때만 보이고, 이미 골라져 있으면 계속 보인다
     private var judgeRow: some View {
-        tallRow("판단 모델", sub: "선택, 안 쓰면 정리 모델이 판단해요") {
-            HStack(spacing: 6) {
-                SettingPill(on: judge == "none", action: { judge = "none" }) { Text("안 씀") }
-                SettingPill(on: judge == "jev", action: { judge = "jev" }) { jevLabel("Jev API") }
-                if provider == "ajou" || judge == "ajou" {
-                    SettingPill(on: judge == "ajou", action: { judge = "ajou" }) { jevLabel("아주대 LLM jev-latest") }
+        tallRow("판단 모델", sub: "활동 기록을 어느 업무에 넣을지 판단해요") {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
+                    SettingPill(on: judge == "gpt", action: { judge = "gpt" }) { Text("GPT") }
+                    SettingPill(on: judge != "gpt", action: { if judge == "gpt" { judge = "jev" } }) { jevLabel("Jev") }
+                }
+                if judge == "gpt" {
+                    BrandMenu(selection: $state.settings.judgeGPTProvider,
+                              options: [("codex", "ChatGPT 구독"), ("ajou", "아주대 LLM API"), ("openai", "별도 API")], width: 190)
+                    switch state.settings.judgeGPTProvider {
+                    case "ajou":
+                        ModelDropdown(selection: $state.settings.judgeAjouModel, models: Self.ajouGroups[0].1)
+                        if provider != "ajou" { SecureField("아주대 API 키", text: $ajouKey).frame(width: 260) }
+                    case "openai":
+                        TextField("판단 API 주소", text: $state.settings.judgeBaseURL).frame(width: 300)
+                        SecureField("판단 API 키", text: $state.settings.judgeAPIKey).frame(width: 300)
+                        ModelDropdown(selection: $state.settings.judgeAPIModel, models: judgeAPIModels.map { ($0, $0) }, directEntry: true)
+                    default:
+                        codexModelField($state.settings.judgeCodexModel, state.codexModels)
+                    }
+                } else {
+                    BrandMenu(selection: $judge, options: [("jev", "Jev API"), ("ajou", "아주대 Jev")], width: 190)
+                    if judge == "ajou", provider != "ajou" { SecureField("아주대 API 키", text: $ajouKey).frame(width: 260) }
                 }
             }
         }
+    }
+
+    private func availableAPIModels(enabled: Bool, address: String, key: String) async -> [String] {
+        guard enabled, !state.isPreview,
+              let url = URL(string: address.trimmingCharacters(in: .whitespacesAndNewlines)),
+              ["http", "https"].contains(url.scheme ?? ""), url.host != nil else { return [] }
+        do {
+            try await Task.sleep(nanoseconds: 350_000_000)
+            return try await OpenAICompatClient(baseURL: url, model: "", apiKey: key).availableModels()
+        } catch { return [] }
     }
 
     /// 알약 안: Jev 로고 14pt와 이름
@@ -599,14 +629,14 @@ private struct ConnectionSection: View {
 
     /// 정리 모델: 고른 연결 방식의 모델 목록
     private var organizeRow: some View {
-        tallRow("정리 모델") {
+        tallRow("정리 모델", sub: "판단을 마친 업무의 이름과 요약을 만들어요") {
             modelList(codex: $codexModel, ajou: $ajouModel, openAI: $openAIModel, codexModels: state.codexModels)
         }
     }
 
     /// 채팅 모델: 정리 모델과 같이(기본) 또는 따로 고르기. 따로 고르면 알약 아래에 같은 연결 방식의 모델 목록이 펼쳐진다
     private var chatRow: some View {
-        tallRow("채팅 모델") {
+        tallRow("채팅 모델", sub: "채팅에서 질문을 읽고 답변을 작성해요") {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 6) {
                     SettingPill(on: chatSame, action: { chatSame = true }) { Text("정리 모델과 같이") }
@@ -620,26 +650,24 @@ private struct ConnectionSection: View {
         }
     }
 
-    /// 고른 연결 방식의 모델 목록: ChatGPT 구독은 계정에서 쓸 수 있는 모델, 아주대는 회사별 알약, API는 직접 입력
+    /// 고른 연결 방식에서 사용할 수 있는 모델을 메뉴로 보여 준다.
     @ViewBuilder private func modelList(codex: Binding<String>, ajou: Binding<String>, openAI: Binding<String>, codexModels: [CodexModel]) -> some View {
         switch provider {
-        case "ajou": ModelPills(groups: Self.ajouGroups, selection: ajou)
-        case "openai": BrandInput(text: openAI, placeholder: "gpt-5.4-mini", width: 460)
+        case "ajou": ModelDropdown(selection: ajou, models: Self.ajouGroups.flatMap { $0.1 }, directEntry: true)
+        case "openai": ModelDropdown(selection: openAI, models: apiModels.map { ($0, $0) }, directEntry: true)
         default: codexModelField(codex, codexModels)
         }
     }
 
-    /// ChatGPT 모델 칸: 불러오는 중이면 안내, 목록이 있으면 알약, 없으면 직접 입력
+    /// ChatGPT 모델을 불러오는 동안에는 현재 상태를 안내한다.
     @ViewBuilder private func codexModelField(_ selection: Binding<String>, _ models: [CodexModel]) -> some View {
         if state.codexModelsLoading {
             HStack(spacing: 8) {
                 Text("불러오는 중…").font(Brand.suit(11)).foregroundStyle(Brand.gray)
                 ProgressView().controlSize(.mini)
             }.frame(height: 28)
-        } else if models.isEmpty {
-            BrandInput(text: selection, placeholder: "gpt-5.6-luna", width: 460)
         } else {
-            ModelPills(groups: [("GPT", models.map { ($0.slug, $0.displayName) })], selection: selection)
+            ModelDropdown(selection: selection, models: models.map { ($0.slug, $0.displayName) })
         }
     }
 }
