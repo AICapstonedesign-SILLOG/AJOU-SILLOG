@@ -286,7 +286,7 @@ private struct SettingJevLogo: View {
     }
 }
 
-/// 연결 확인 결과 글과 단추: 확인 전은 회색, 성공은 파랑 체크와 글, 실패는 붉은 글. result 가 nil 이면 '확인 전'
+/// 연결 확인 결과: 확인 중은 회색, 성공은 초록 체크, 실패는 빨간 오류 표시.
 private struct SettingCheckStatus: View {
     let result: String?
     let testing: Bool
@@ -297,9 +297,9 @@ private struct SettingCheckStatus: View {
             if let result {
                 let ok = result.hasPrefix("연결됨")
                 HStack(spacing: 6) {
-                    if ok { Image(systemName: "checkmark.circle.fill").font(.system(size: 13)) }
+                    if !testing { Image(systemName: ok ? "checkmark.circle.fill" : "xmark.circle.fill").font(.system(size: 13)) }
                     Text(result).font(Brand.suit(11)).lineLimit(3).multilineTextAlignment(.trailing).textSelection(.enabled)
-                }.foregroundStyle(ok ? Color(hex: 0x4A86C5) : testing ? Brand.gray : Color(hex: 0xC9452E))
+                }.foregroundStyle(testing ? Brand.gray : ok ? Color(hex: 0x2D8053) : Color(hex: 0xC9452E))
             } else {
                 Text("확인 전").font(Brand.suit(11)).foregroundStyle(Brand.gray)
             }
@@ -464,9 +464,7 @@ private struct ConnectionSection: View {
         case .loggedIn(let email, let plan, _):
             SettingRow("ChatGPT 계정", detail: [email, plan.map { "\($0) 요금제로 연결됨" } ?? "연결됨"].compactMap { $0 }.joined(separator: ", "), top: 16, bottom: 7) {
                 HStack(spacing: 14) {
-                    if testing || state.codexModelsLoading { ProgressView().controlSize(.small) }
-                    Button(action: test) { Text("연결 확인").font(Brand.suit(12, .medium)) }
-                        .buttonStyle(BrandButtonStyle()).disabled(testing)
+                    SettingCheckStatus(result: result, testing: testing, action: test)
                     Menu {
                         if state.codexModelsLoading { Button("모델 검사 중단") { state.cancelCodexModelLoading() } }
                         else { Button("모델 다시 확인") { Task { await state.loadCodexModels(force: true) } } }
@@ -513,7 +511,6 @@ private struct ConnectionSection: View {
     /// 카드 아래: 기기 코드, 확인 결과, 오류
     @ViewBuilder private var codexExtras: some View {
         if case .loggedOut = state.codexStatus, let code = state.deviceCode { deviceCodeRows(code) }
-        if let result = state.llmTestResult { resultLine(result) }
         if case .loggedIn = state.codexStatus, let modelsError = state.codexModelsError { resultLine(modelsError) }
         if let message = state.codexMessage { resultLine(message) }
     }

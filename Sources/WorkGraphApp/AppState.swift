@@ -709,7 +709,8 @@ final class AppState: ObservableObject {
             }
             return
         }
-        switch await makeClient().selfTest() {
+        let client = CodexResponsesClient(auth: codexAuth, model: settings.codexModel, reasoningEffort: "medium", timeout: 45)
+        switch await client.selfTest() {
         case .success(let message): llmTestResult = "연결됨. \(message)"
         case .failure(let error): llmTestResult = String(error.description.prefix(300))
         }

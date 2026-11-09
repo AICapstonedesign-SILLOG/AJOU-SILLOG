@@ -133,6 +133,23 @@ enum SnapshotCatalog {
                 s.llmTestResult = "연결됨. gpt-6-luna 응답 정상 (입력 131 / 출력 17 토큰)"
                 s.selectedTab = .settings; s.settingsSection = .ai
             },
+            shot("ST-AI-CHECK-SUCCESS", MainWindow(), size: window) { s in
+                s.phase = .ready; s.selectedTab = .settings; s.settingsSection = .ai
+                s.codexStatus = .loggedIn(email: "sillog@example.com", plan: "plus", expiresAt: nil)
+                s.llmTestResult = "연결됨 · 정리 모델 응답 확인"
+                s.chatTestResult = "연결됨 · 응답과 도구 호출 확인"
+            },
+            shot("ST-AI-CHECK-FAILURE", MainWindow(), size: window) { s in
+                s.phase = .ready; s.selectedTab = .settings; s.settingsSection = .ai
+                s.codexStatus = .loggedIn(email: "sillog@example.com", plan: "plus", expiresAt: nil)
+                s.llmTestResult = "연결됨 · 정리 모델 응답 확인"
+                s.chatTestResult = "채팅 모델 연결 확인 시간이 초과되었습니다."
+            },
+            shot("ST-AI-CHECK-RUNNING", MainWindow(), size: window) { s in
+                s.phase = .ready; s.selectedTab = .settings; s.settingsSection = .ai
+                s.codexStatus = .loggedIn(email: "sillog@example.com", plan: "plus", expiresAt: nil)
+                s.llmTestResult = "확인 중…"
+            },
             shot("ST-AI-FAIL", MainWindow(), size: window) { s in
                 s.phase = .ready; s.status = collector(); s.taskList = recentTasks
                 s.settings.llmProvider = "openai"; s.settings.chatProvider = "openai"
@@ -299,6 +316,7 @@ enum SnapshotCatalog {
             })
         }
         return [Snapshot(name: "CH-01", size: window, view: AnyView(MainWindow().environmentObject(state))),
+                Snapshot(name: "CH-SKILL-PINS", size: nil, view: AnyView(PinnedSkillPicker(chat: state.chat!, onManage: {}).background(.white))),
                 Snapshot(name: "CH-13", size: window, view: AnyView(MainWindow().environmentObject(tab(.connectors)))),
                 Snapshot(name: "CH-59", size: window, view: AnyView(MainWindow().environmentObject(tab(.skills))))] + chatFocus
     }
