@@ -176,8 +176,7 @@ final class ChatFocusUITests: XCTestCase {
         XCTAssertTrue(text.contains("Flask웹앱개발에대해물어보세요"), text)
     }
 
-    // 프로젝트는 화면에서 뺀다: 대화 목록에 프로젝트 구역이 없고, 프로젝트에 있던 대화도 일반 목록에 보인다
-    func testProjectsAreGoneFromTheChatSidebar() throws {
+    func testSidebarShowsProjectsAndTheirConversations() throws {
         let text = try text(seed: { db in
             let store = ProjectStore(db)
             let project = ChatProject(title: "졸업 프로젝트", goal: "")
@@ -188,7 +187,7 @@ final class ChatFocusUITests: XCTestCase {
             try store.move("conversation:\(conversation.id)", to: project.id)
         }) { s in s.chat?.newConversation() }
         XCTAssertTrue(text.contains("졸업논의"), "프로젝트에 있던 대화도 대화 목록에: \(text)")
-        XCTAssertFalse(text.contains("졸업프로젝트"), text)
+        XCTAssertTrue(text.contains("졸업프로젝트"), text)
         XCTAssertFalse(text.contains("제안"), "프로젝트 제안도 없다: \(text)")
     }
 
@@ -197,6 +196,32 @@ final class ChatFocusUITests: XCTestCase {
         chat.startScheduler()
         XCTAssertFalse(chat.projects.checking, "프로젝트 자동 제안(모델 호출)은 돌리지 않는다")
         chat.stop()
+    }
+
+    func testBulkActionsUpdateCurrentProjectAndProtectRunningChat() throws {
+        let db = try WGDatabase.inMemory(), store = ChatStore(db)
+        var first = ChatConversation(); first.title = "첫 대화"
+        var second = ChatConversation(); second.title = "둘째 대화"
+        for conversation in [first, second] {
+            try store.save(conversation)
+        }
+        let project = ChatProject(title: "검토", goal: "공동 검토")
+        try ProjectStore(db).save(project)
+        let chat = chatState(db)
+        chat.select(first)
+        let ids: Set<String> = [first.id, second.id]
+        try chat.moveConversations(ids, to: project.id)
+        XCTAssertEqual(chat.current.projectID, project.id)
+        XCTAssertEqual(chat.conversations.filter { $0.projectID == project.id }.count, 2)
+        chat.activeMessage = ConversationMessage(conversationID: first.id, role: "assistant", text: "")
+        XCTAssertThrowsError(try chat.deleteConversations(ids))
+        XCTAssertThrowsError(try chat.moveConversations(ids, to: nil))
+        XCTAssertEqual(try store.conversations().count, 2)
+        chat.activeMessage = nil
+        try chat.deleteConversations(ids)
+        XCTAssertTrue(chat.conversations.isEmpty)
+        XCTAssertTrue(chat.messages.isEmpty)
+        XCTAssertFalse(ids.contains(chat.current.id))
     }
 
     func testTaskRowsHaveNoProjectLabel() throws {
@@ -212,7 +237,7 @@ final class ChatFocusUITests: XCTestCase {
     }
 
     func testTheLibraryHasNoProjectFilter() throws {
-        let text = try text { s in s.selectedTab = .records; s.recordsSection = .library }
+        let text = try text { s in s.selectedTab = .chat; s.showsChatResultsOnOpen = true }
         XCTAssertTrue(text.contains("전체종류"), text)
         XCTAssertFalse(text.contains("전체프로젝트"), "보관함에 프로젝트 걸러보기가 없다: \(text)")
     }

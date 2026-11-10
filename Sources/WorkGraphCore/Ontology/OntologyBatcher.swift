@@ -42,8 +42,7 @@ public actor OntologyBatcher {
     private let db: WGDatabase
     private let store: EventStore
     private var llm: any LLMClient
-    /// 판단 모델(Jev). 있으면 ② 업무 대입에서 행을 기존 업무에 붙일지 새 업무로 볼지 먼저 고른다 (없으면 LLM 이 모두 한다)
-    private var jevClient: (any JevChoosing)?
+    private var activityJudge: ActivityJudging?
     /// 캘린더에 이미 있는 일정 (앱이 EventKit 으로 읽어 준다: 시작, 끝). 일정 찾기가 같은 일정을 다시 제안하지 않게 쓴다
     private var upcomingEvents: (@Sendable (Date, Date) async -> [EventFinder.Known])?
     private var config: BatchConfig
@@ -55,10 +54,10 @@ public actor OntologyBatcher {
     private var failures = 0
     private var nextAllowedAt = 0.0
 
-    public init(db: WGDatabase, llm: any LLMClient, config: BatchConfig = BatchConfig(), home: String = NSHomeDirectory(),
+    public init(db: WGDatabase, llm: any LLMClient, config: BatchConfig = BatchConfig(), activityJudge: ActivityJudging? = nil, home: String = NSHomeDirectory(),
                 fileExists: @escaping @Sendable (String) -> Bool = { FileManager.default.fileExists(atPath: $0) },
                 clock: @escaping @Sendable () -> Double = { Date().timeIntervalSince1970 }) {
-        self.db = db; self.store = EventStore(db); self.llm = llm; self.config = config
+        self.db = db; self.store = EventStore(db); self.llm = llm; self.config = config; self.activityJudge = activityJudge
         self.home = home; self.fileExists = fileExists; self.clock = clock
     }
 
@@ -71,9 +70,10 @@ public actor OntologyBatcher {
 
     public func setUpcomingEvents(_ provider: (@Sendable (Date, Date) async -> [EventFinder.Known])?) { upcomingEvents = provider }
 
-    /// 판단 모델 연결. nil 이면 쓰지 않는다
-    public func setJudge(_ endpoint: JevEndpoint?) {
-        jevClient = endpoint.map { JevClient(endpoint: $0) as any JevChoosing }
+    public func setModels(organizer: any LLMClient, judge: ActivityJudging) {
+        llm = organizer
+        activityJudge = judge
+        failures = 0; nextAllowedAt = 0
     }
 
     public func runIfDue(force: Bool) async -> BatchOutcome {
@@ -112,8 +112,7 @@ public actor OntologyBatcher {
         let compressed = EventCompressor.compress(window, idle: idle, texts: texts, windowEnd: windowEnd, home: home,
                                                   fileExists: fileExists, maxRows: config.maxRows, maxGap: config.maxGap,
                                                   snippetChars: config.snippetChars, snippetTopN: config.snippetTopN)
-        let includedIds = compressed.flatMap(\.observationIds)
-        guard !compressed.isEmpty, !includedIds.isEmpty else { return .skipped("압축 결과 없음") }
+        guard !compressed.isEmpty, compressed.contains(where: { !$0.observationIds.isEmpty }) else { return .skipped("압축 결과 없음") }
         // 창 안의 대화 + 아직 어느 배치에도 안 들어간 지난 대화(늦게 읽혔거나 앱이 꺼져 있던 동안 것)
         let chats = (try? store.unprocessedChatMessages(upTo: windowEnd, notOlderThan: first.ts - 24 * 3600)) ?? []
         // 창 끝까지 끝난 받아쓴 녹음 (24시간 이내, 아직 어느 배치에도 안 들어간 것)
@@ -122,15 +121,42 @@ public actor OntologyBatcher {
 
         // 최근 7일의 업무 전부 (최대 40개): 행이 어느 목표에 기여하는지 보려면 목표 목록이 다 있어야 한다
         let openTasks = try await db.writer.read { try GraphTx($0).openTasks(limit: 40, since: now - 7 * 86_400) }
-        // 화면 기억 카드 (실패해도 배정은 카드 없이 계속한다)
+        let organizer = llm
+        let selectedJudge = activityJudge
+        let model = organizer.modelName
         var cards: [Int: [ScreenCard]] = [:]
-        if config.screenCards, let vision = llm as? any VisionLLMClient {
-            cards = await makeCards(rows: rows, window: window, llm: vision, now: now)
-        }
-        let model = llm.modelName
+        var acceptedRows = rows
         let judgment: Judgment
         do {
-            judgment = try await judge(rows: rows, openTasks: openTasks, cards: cards, now: now)
+            if let selectedJudge {
+                var accepted = try await StagedPipeline.decideSeparately(
+                    JudgeInput(rows: rows, openTasks: openTasks, now: now), using: selectedJudge)
+                acceptedRows = accepted.input.rows
+                let acceptedNumbers = Set(acceptedRows.map(\.row))
+                let pending = rows.filter { !acceptedNumbers.contains($0.row) }
+                if !pending.isEmpty && !pending.contains(where: { !$0.observationIds.isEmpty }) {
+                    throw PipelineError.incomplete(stage: "판단 모델", missing: pending.map(\.row), calls: accepted.calls)
+                }
+                // 정리 모델에는 판단이 완료된 행의 화면만 보낸다.
+                if config.screenCards, let vision = organizer as? any VisionLLMClient {
+                    cards = await makeCards(rows: acceptedRows, window: window, llm: vision, now: now)
+                }
+                accepted.input.cards = cards
+                let organized = try await StagedPipeline.organizeDecisions(accepted, llm: organizer)
+                judgment = Judgment(patch: StagedPipeline.patch(from: organized), calls: organized.calls, failure: nil, fallbackModel: model)
+            } else {
+                // 명시적으로 단일 모델을 사용하는 기존 CLI와 평가 경로.
+                if config.screenCards, let vision = organizer as? any VisionLLMClient {
+                    cards = await makeCards(rows: rows, window: window, llm: vision, now: now)
+                }
+                judgment = try await judge(rows: rows, openTasks: openTasks, cards: cards, now: now)
+            }
+        } catch let error as PipelineError {
+            let failure = Judgment(patch: nil, calls: error.calls, failure: error.description, fallbackModel: model)
+            try recordFailure(message: error.description, model: failure.model, first: first, last: last, rowCount: rows.count,
+                              raw: failure.raw, now: now, tokens: (failure.promptTokens, failure.completionTokens), prompt: failure.prompt)
+            scheduleBackoff(now: now)
+            return .failed(error.description)
         } catch {
             // 서버가 죽었거나 토큰이 만료된 경우: 데이터는 그대로 두고 기다린다. 건너뛰지 않는다.
             let message = (error as? LLMError)?.description ?? "\(error)"
@@ -148,14 +174,18 @@ public actor OntologyBatcher {
             return .failed(message)
         }
 
-        // 행마다 정해진 업무를 그래프에 반영하고, 판단 원본은 원시 행에 남긴다.
+        let completedRows = acceptedRows
+        let deferredCount = rows.count - completedRows.count
+        // 판정이 끝난 원시 행만 반영하고, 나머지는 다음 판단 모델 호출까지 미처리 상태로 둔다.
         let stats: ApplyStats
         do {
             stats = try await db.writer.write { conn -> ApplyStats in
                 let tx = GraphTx(conn)
-                let (stats, assignments) = try AssignmentApplier().apply(patch, rows: rows, tx: tx, now: now, requireComplete: true)
+                let (applied, assignments) = try AssignmentApplier().apply(patch, rows: completedRows, tx: tx, now: now, requireComplete: true)
+                var stats = applied
+                if deferredCount > 0 { stats.deferredJudgmentRows = deferredCount }
                 var record = BatchRecord(startedAt: now, finishedAt: Date().timeIntervalSince1970, fromObs: first.id, toObs: last.id,
-                                         rowCount: rows.count, status: "ok", model: judgment.model,
+                                         rowCount: completedRows.count, status: "ok", model: judgment.model,
                                          promptTokens: judgment.promptTokens, completionTokens: judgment.completionTokens,
                                          rawResponse: String(judgment.raw.prefix(20_000)),
                                          stats: (try? JSONEncoder().encode(stats)).flatMap { String(data: $0, encoding: .utf8) },
@@ -164,9 +194,9 @@ public actor OntologyBatcher {
                                          systemPromptHash: try ConsolidationStore.storePrompt(judgment.prompt.system, conn))
                 try record.insert(conn)
                 let batchId = record.id ?? conn.lastInsertedRowID
-                try EventStore.mark(conn, observationIds: includedIds, batchId: batchId)
-                try EventStore.markChats(conn, ids: rows.flatMap(\.chatMessageIds), batchId: batchId)
-                try RecordingStore.mark(conn, ids: rows.flatMap(\.recordingIds), batchId: batchId)
+                try EventStore.mark(conn, observationIds: completedRows.flatMap(\.observationIds), batchId: batchId)
+                try EventStore.markChats(conn, ids: completedRows.flatMap(\.chatMessageIds), batchId: batchId)
+                try RecordingStore.mark(conn, ids: completedRows.flatMap(\.recordingIds), batchId: batchId)
                 for item in assignments {
                     try EventStore.assign(conn, observationIds: item.row.observationIds, taskId: item.taskId, relevant: item.resource, offTask: item.offTask, reason: item.reason)
                     try EventStore.assignChats(conn, ids: item.row.chatMessageIds, taskId: item.taskId)
@@ -181,8 +211,8 @@ public actor OntologyBatcher {
             scheduleBackoff(now: now)
             return .failed(message)
         }
-        failures = 0; nextAllowedAt = 0
-        if config.findEvents { await findEvents(rows: rows, cards: cards, now: now) }
+        if deferredCount == 0 { failures = 0; nextAllowedAt = 0 } else { scheduleBackoff(now: now) }
+        if config.findEvents { await findEvents(rows: completedRows, cards: cards, now: now) }
         // 새 업무가 생겼으면 제목만 다른 같은 목표가 아닌지 LLM 에 묻는다 (합치기)
         if stats.tasksCreated > 0 {
             var merged = stats
@@ -275,7 +305,7 @@ public actor OntologyBatcher {
             return Judgment(single: result, prompt: prompt)
         case .staged:
             do {
-                let (patch, calls) = try await StagedPipeline.run(JudgeInput(rows: rows, openTasks: openTasks, cards: cards, now: now, judge: jevClient), llm: llm)
+                let (patch, calls) = try await StagedPipeline.run(JudgeInput(rows: rows, openTasks: openTasks, cards: cards, now: now), llm: llm)
                 return Judgment(patch: patch, calls: calls, failure: nil, fallbackModel: llm.modelName)
             } catch let error as PipelineError {
                 return Judgment(patch: nil, calls: error.calls, failure: error.description, fallbackModel: llm.modelName)

@@ -33,6 +33,22 @@ public final class OpenAICompatClient: LLMClient, @unchecked Sendable {
         return (response as? HTTPURLResponse)?.statusCode == 200
     }
 
+    public func availableModels() async throws -> [String] {
+        struct ModelList: Decodable {
+            struct Model: Decodable { let id: String }
+            let data: [Model]
+        }
+        var request = URLRequest(url: baseURL.appendingPathComponent("models"))
+        request.timeoutInterval = 12
+        if let apiKey, !apiKey.isEmpty { request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization") }
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200, data.count <= 2_000_000 else {
+            throw LLMError.backend("API에서 모델 목록을 가져오지 못했어요.")
+        }
+        let ids = try JSONDecoder().decode(ModelList.self, from: data).data.map(\.id).filter { !$0.isEmpty }
+        return Array(Set(ids)).sorted()
+    }
+
     // MARK: 요청·응답
 
     private struct RequestBody: Encodable {

@@ -1,6 +1,30 @@
 import AppKit
 import SwiftUI
 
+/// 커서 바로 앞에서 시작한 커넥터 또는 스킬 토큰.
+struct ChatShortcut: Equatable {
+    enum Kind { case connector, skill }
+    let kind: Kind
+    let query: String
+    let range: NSRange
+
+    static func at(_ caret: NSRange, in text: String) -> Self? {
+        let source = text as NSString
+        guard caret.length == 0, caret.location <= source.length else { return nil }
+        let prefix = source.substring(to: caret.location)
+        guard let start = prefix.lastIndex(where: { $0.isWhitespace }) else { return token(prefix, start: 0) }
+        let word = String(prefix[prefix.index(after: start)...])
+        return token(word, start: caret.location - word.utf16.count)
+    }
+
+    private static func token(_ word: String, start: Int) -> Self? {
+        guard let first = word.first, first == "@" || first == "/" else { return nil }
+        let query = String(word.dropFirst())
+        guard !query.contains("@"), !query.contains("/") else { return nil }
+        return .init(kind: first == "@" ? .connector : .skill, query: query, range: NSRange(location: start, length: word.utf16.count))
+    }
+}
+
 /// 한글 조합 중 Enter는 조합을 확정하고, 일반 Enter는 전송한다.
 struct ChatInput: NSViewRepresentable {
     @Binding var text: String
@@ -8,6 +32,9 @@ struct ChatInput: NSViewRepresentable {
     var minimumHeight: CGFloat = 56
     /// 바뀌면 입력칸으로 커서를 옮긴다 (범위를 고른 직후 바로 쓰게)
     var focusRequest = 0
+    var selectionOnFocus: NSRange?
+    var onShortcut: (ChatShortcut?) -> Void = { _ in }
+    var shortcutKey: (UInt16) -> Bool = { _ in false }
     var onSend: () -> Void
 
     /// Args: context는 SwiftUI 연결 상태이다.
@@ -25,6 +52,7 @@ struct ChatInput: NSViewRepresentable {
         editor.autoresizingMask = [.width]
         editor.textContainer?.widthTracksTextView = true
         editor.delegate = context.coordinator; editor.onSend = onSend
+        editor.shortcutKey = shortcutKey
         editor.setAccessibilityLabel("메시지 입력")
         scroll.documentView = editor; scroll.drawsBackground = false
         scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true
@@ -37,10 +65,14 @@ struct ChatInput: NSViewRepresentable {
     func updateNSView(_ view: NSScrollView, context: Context) {
         guard let editor = view.documentView as? ChatTextView else { return }
         context.coordinator.parent = self; editor.onSend = onSend
+        editor.shortcutKey = shortcutKey
         if editor.string != text, !editor.hasMarkedText() { editor.string = text }
         context.coordinator.resize(editor)
         if context.coordinator.focusRequest != focusRequest {
             context.coordinator.focusRequest = focusRequest
+            if let selectionOnFocus, NSMaxRange(selectionOnFocus) <= (editor.string as NSString).length {
+                editor.setSelectedRange(selectionOnFocus)
+            }
             DispatchQueue.main.async { editor.window?.makeFirstResponder(editor) }
         }
     }
@@ -65,6 +97,18 @@ struct ChatInput: NSViewRepresentable {
         func textDidChange(_ notification: Notification) {
             guard let editor = notification.object as? NSTextView else { return }
             parent.text = editor.string; resize(editor)
+            publishShortcut(editor)
+        }
+
+        func textViewDidChangeSelection(_ notification: Notification) {
+            if let editor = notification.object as? NSTextView { publishShortcut(editor) }
+        }
+
+        private func publishShortcut(_ editor: NSTextView) {
+            DispatchQueue.main.async { [weak self, weak editor] in
+                guard let self, let editor, !editor.hasMarkedText() else { return }
+                parent.onShortcut(ChatShortcut.at(editor.selectedRange(), in: editor.string))
+            }
         }
 
         /// Args: editor는 현재 입력창이다.
@@ -81,10 +125,12 @@ struct ChatInput: NSViewRepresentable {
 
 final class ChatTextView: NSTextView {
     var onSend: (() -> Void)?
+    var shortcutKey: ((UInt16) -> Bool)?
     /// Args: event는 키보드 입력이다.
     /// Returns: 없음. Enter 전송, Shift+Enter 줄바꿈, 조합 중 Enter 확정을 처리한다.
     /// Raises: 없음.
     override func keyDown(with event: NSEvent) {
+        if !hasMarkedText(), !event.modifierFlags.contains(.shift), shortcutKey?(event.keyCode) == true { return }
         if [36, 76].contains(event.keyCode), !hasMarkedText() {
             if event.modifierFlags.contains(.shift) { insertNewline(nil) }
             else { onSend?() }

@@ -34,7 +34,7 @@ struct WorkGraphApp: App {
         }
         .menuBarExtraStyle(.window)
 
-        Window("SILLOG", id: "main") {
+        Window("Sillog", id: "main") {
             MainWindow().environmentObject(state)
         }
         .defaultSize(width: 1180, height: 760)
@@ -159,6 +159,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         MainActor.assumeIsolated { WindowOpener.shared.openMain() }
         return true
+    }
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        MainActor.assumeIsolated {
+            for url in urls where SlackOAuth.handle(url) {
+                WindowOpener.shared.openMain()
+            }
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }

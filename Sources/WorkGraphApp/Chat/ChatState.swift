@@ -10,8 +10,11 @@ final class ChatState: ObservableObject {
     @Published var current = ChatConversation()
     @Published var messages: [ConversationMessage] = []
     @Published var skills: [ChatSkill] = []
+    @Published private(set) var pinnedSkillIDs: [String] = []
+    var pinnedSkills: [ChatSkill] { pinnedSkillIDs.compactMap { id in skills.first { $0.id == id } } }
     @Published var automations: [ChatAutomation] = []
     @Published var draft = ""
+    @Published var draftConnectors: [String] = []
     @Published var error: String?
     @Published var activeMessage: ConversationMessage?
     /// 범위 단추의 고를 거리: 이 대화에서 볼 수 있는 분야·업무
@@ -46,7 +49,8 @@ final class ChatState: ObservableObject {
         }
         do {
             try store.recoverInterruptedRuns()
-            skills = try ChatSkill.load()
+            skills = try store.skills()
+            pinnedSkillIDs = try store.pinnedSkillIDs()
             try reload()                                  // 처음엔 최근 대화가 아니라 새 대화(홈)로 시작
         } catch { self.error = error.localizedDescription }
         refreshFocusChoices()
@@ -77,10 +81,46 @@ final class ChatState: ObservableObject {
         if fresh != focusChoices { focusChoices = fresh }
     }
 
-    /// Args: 없음.
-    /// Returns: 없음. 새 대화 작성 화면으로 이동한다.
-    /// Raises: 없음.
+    /// 스킬을 추가하거나 같은 ID로 수정한다. 선택 상태는 사용자가 바꾼다.
+    func saveSkill(id: String?, title: String, summary: String, instructions: String) throws {
+        if let id {
+            guard let index = skills.firstIndex(where: { $0.id == id }) else {
+                throw ChatToolError.unavailable("이 스킬이 이미 삭제됐어요.")
+            }
+            let updated = try store.updateSkill(skills[index], title: title, instructions: instructions, summary: summary)
+            skills[index] = updated
+        } else {
+            skills.append(try store.addSkill(title: title, instructions: instructions, summary: summary))
+        }
+    }
+
+    func deleteSkill(_ skill: ChatSkill) throws {
+        try store.deleteSkill(skill)
+        skills.removeAll { $0.id == skill.id }
+        pinnedSkillIDs.removeAll { $0 == skill.id }
+        if current.skillIDs.contains(skill.id) {
+            current.skillIDs.removeAll { $0 == skill.id }
+            saveScope()
+        }
+    }
+
+    func selectSkill(_ id: String) {
+        guard skills.contains(where: { $0.id == id }), !current.skillIDs.contains(id) else { return }
+        current.skillIDs.append(id)
+    }
+
+    func togglePinnedSkill(_ id: String) {
+        var ids = pinnedSkillIDs
+        if ids.contains(id) { ids.removeAll { $0 == id } }
+        else { ids.append(id) }
+        do {
+            try store.setPinnedSkills(ids)
+            pinnedSkillIDs = ids
+        } catch { self.error = error.localizedDescription }
+    }
+
     func newConversation(projectID: String? = nil, focus: [ChatFocus] = []) {
+        draftConnectors = []
         current = ChatConversation(); current.projectID = projectID; current.scope.focus = focus; messages = []; draft = ""; error = nil
         if !focus.isEmpty { refreshFocusChoices(); inputFocusRequest += 1 }   // 업무에서 '이 업무로 묻기'로 왔으면 바로 쓰게
     }
@@ -89,9 +129,12 @@ final class ChatState: ObservableObject {
     /// Returns: 없음. 저장된 메시지와 진행 중인 응답을 표시한다.
     /// Raises: 없음. 조회 오류는 화면에 표시한다.
     func select(_ conversation: ChatConversation) {
+        draftConnectors = []
         do {
             let loaded = try store.messages(conversation.id)
             current = conversation; messages = loaded; draft = ""; error = nil
+            let available = Set(skills.map(\.id))
+            current.skillIDs.removeAll { !available.contains($0) }
             if let activeMessage, activeMessage.conversationID == conversation.id { replaceVisible(activeMessage) }
         } catch { self.error = error.localizedDescription }
     }
@@ -113,15 +156,33 @@ final class ChatState: ObservableObject {
     /// Returns: 없음. 응답 생성 중인 대화는 삭제하지 않는다.
     /// Raises: 없음. 삭제 오류는 화면에 표시한다.
     func delete(_ conversation: ChatConversation) {
-        guard activeMessage?.conversationID != conversation.id else { return }
         do {
-            try store.deleteConversation(conversation.id)
-            try reload()
-            projects.reload()
-            if current.id == conversation.id {
-                if let next = conversations.first { select(next) } else { newConversation() }
-            }
+            try deleteConversations([conversation.id])
         } catch { self.error = error.localizedDescription }
+    }
+
+    func deleteConversations(_ ids: Set<String>) throws {
+        try checkEditable(ids)
+        try store.deleteConversations(Array(ids))
+        try reload()
+        projects.reload()
+        if ids.contains(current.id) {
+            if let next = conversations.first { select(next) } else { newConversation() }
+        }
+    }
+
+    func moveConversations(_ ids: Set<String>, to projectID: String?) throws {
+        try checkEditable(ids)
+        try ProjectStore(db).move(ids.map { "conversation:\($0)" }, to: projectID)
+        try reload()
+        projects.reload()
+        if ids.contains(current.id) { current.projectID = projectID; refreshFocusChoices() }
+    }
+
+    private func checkEditable(_ ids: Set<String>) throws {
+        if let activeMessage, ids.contains(activeMessage.conversationID) {
+            throw ChatToolError.unavailable("응답 중인 채팅은 완료 후 이동하거나 삭제할 수 있어요.")
+        }
     }
 
     /// Args: 없음.
@@ -167,8 +228,9 @@ final class ChatState: ObservableObject {
     func send() -> Bool {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !running else { return false }
-        guard begin(text, conversation: current, automationID: nil) else { return false }
+        guard begin(text, conversation: current, automationID: nil, draftConnectors: draftConnectors) else { return false }
         draft = ""
+        draftConnectors = []
         return true
     }
 
@@ -267,7 +329,7 @@ final class ChatState: ObservableObject {
     /// Args: text는 요청, conversation은 실행 범위, automationID가 있으면 승인된 예약 실행이다.
     /// Returns: 요청을 저장하고 시작했으면 true.
     /// Raises: 없음. 시작 실패는 화면에 표시한다.
-    @discardableResult private func begin(_ text: String, conversation: ChatConversation, automationID: String?) -> Bool {
+    @discardableResult private func begin(_ text: String, conversation: ChatConversation, automationID: String?, draftConnectors: [String] = []) -> Bool {
         guard !running else { return false }
         do {
             var conversation = conversation
@@ -292,6 +354,10 @@ final class ChatState: ObservableObject {
                 if current.id == conversation.id { current.scope.focus = focus }
             }
             var scope = try ProjectStore(db).scope(for: conversation)
+            for connector in draftConnectors {
+                if connector == "github" { scope.useGitHub = true }
+                else if !scope.connectors.contains(connector) { scope.connectors.append(connector) }
+            }
             conversation.projectID = scope.projectID
             let previous = try store.messages(conversation.id)
             let needsTitle = previous.isEmpty && automationID == nil && conversation.title == "새 대화"
@@ -312,11 +378,13 @@ final class ChatState: ObservableObject {
             }
             let tools = ChatTools(db: db, scope: scope,
                                   searchKey: searchKey, searchModel: searchModel,
-                                  pluginToken: { id in
-                                      if id == "github" { return (try? await PluginAuth.accessToken(id)) ?? "" }
-                                      return try await PluginAuth.accessToken(id)
-                                  })
+                                  connectorToken: { id in
+                                      if id == "github" { return (try? await ConnectorAuth.accessToken(id)) ?? "" }
+                                      return try await ConnectorAuth.accessToken(id)
+                                  }, connectorResource: ConnectorAuth.resource,
+                                  remoteConnectors: try ConnectorAuth.remoteIDs())
             let runner = ChatRunner(backend: backend, tools: tools)
+            let selectedCatalog = skills
             try reload()
             if current.id == conversation.id { current = conversation; messages = previous + [user, answer] }
             activeMessage = answer; error = nil
@@ -325,7 +393,7 @@ final class ChatState: ObservableObject {
                 var succeeded = false
                 do {
                     let project = self.projects.projects.first(where: { $0.id == conversation.projectID })
-                    let result = try await runner.run(history: previous + [user], skillIDs: conversation.skillIDs, scheduled: automationID != nil, project: project) { [weak self] event in
+                    let result = try await runner.run(history: previous + [user], skillIDs: conversation.skillIDs, skillCatalog: selectedCatalog, scheduled: automationID != nil, project: project) { [weak self] event in
                         await self?.receive(event)
                     }
                     try Task.checkCancellation()

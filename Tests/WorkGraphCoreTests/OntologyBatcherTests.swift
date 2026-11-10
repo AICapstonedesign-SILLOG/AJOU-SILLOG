@@ -69,6 +69,41 @@ final class OntologyBatcherTests: XCTestCase {
         OntologyBatcher(db: db, llm: llm, config: .singleCall, home: "/Users/me", fileExists: { _ in false }, clock: { clock.now })
     }
 
+    func testSeparateJudgmentFailureKeepsRecordsAndRetriesTheSameJudge() async throws {
+        let db = try WGDatabase.inMemory()
+        let ids = try seed(db)
+        let clock = TestClock(500)
+        let judge = StubLLM([
+            .failure(.http(500, "judge unavailable")),
+            .success(#"{"rows":[{"row":1,"choice":"new","reason":"작업 시작"}]}"#),
+            .success(#"{"rows":[{"row":1,"choice":"off","reason":"업무 외"},{"row":2,"choice":"none","reason":"근거 부족"}]}"#),
+        ])
+        let organizer = StubLLM([
+            .success(#"{"tasks":[{"rows":[1],"title":"대시보드 카드","goal":"대시보드 카드 구현"}]}"#),
+            .success(#"{"resources":[],"work":[],"problems":[],"later_items":[]}"#),
+        ])
+        var config = BatchConfig()
+        config.findEvents = false; config.screenCards = false
+        let batcher = OntologyBatcher(db: db, llm: organizer, config: config, activityJudge: .gpt(judge), clock: { clock.now })
+        let store = EventStore(db)
+
+        guard case .failed = await batcher.runIfDue(force: true) else { return XCTFail("판단 실패가 기록되어야 합니다.") }
+        XCTAssertEqual(try store.unprocessed(limit: 10).compactMap(\.id), ids)
+        XCTAssertEqual(organizer.calls, 0)
+        guard case .skipped = await batcher.runIfDue(force: false) else { return XCTFail("자동 재시도 간격을 지켜야 합니다.") }
+        XCTAssertEqual(judge.calls, 1)
+
+        clock.now += 61
+        guard case .ok(let stats) = await batcher.runIfDue(force: false) else { return XCTFail("판단한 행을 정리해야 합니다.") }
+        XCTAssertEqual(stats.deferredJudgmentRows, 2)
+        XCTAssertEqual(try store.unprocessed(limit: 10).compactMap(\.id), Array(ids.dropFirst()))
+        XCTAssertFalse(organizer.users.contains { $0.contains("npm run dev") })
+
+        guard case .ok = await batcher.runIfDue(force: true) else { return XCTFail("보류한 행을 같은 판단 모델로 재시도해야 합니다.") }
+        XCTAssertTrue(try store.unprocessed(limit: 10).isEmpty)
+        XCTAssertEqual(judge.calls, 3)
+    }
+
     func testSkipsWhenNothingToDoOrTooYoung() async throws {
         let db = try WGDatabase.inMemory()
         let clock = TestClock(200)

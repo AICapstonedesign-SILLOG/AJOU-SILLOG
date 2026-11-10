@@ -15,7 +15,7 @@ struct NavRail: View {
         case .records: RailIcon.records
         case .calendar: RailIcon.calendar
         case .settings: RailIcon.settings
-        case .plugins: RailIcon.plugins
+        case .connectors: RailIcon.connectors
         }
     }
 
@@ -51,7 +51,7 @@ struct NavRail: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            ForEach(MainWindow.Tab.visible(selected: state.selectedTab)) { railTab($0) }   // 설정도 다른 탭과 한 줄에 (맨 아래로 내리지 않는다)
+            ForEach(MainWindow.Tab.visible()) { railTab($0) }   // 설정도 다른 탭과 한 줄에 (맨 아래로 내리지 않는다)
             Spacer(minLength: 0)
             AccountDot().padding(.top, 8)
         }
@@ -357,11 +357,11 @@ struct TasksPanel: View {
     }
 }
 
-/// 기록 자료 탭: 위쪽 글자 탭(파일 · 보관함)과 고른 구역. 활동 로그는 설정의 세 번째 탭
+/// 정리 탭: 파일 제안과 처리한 지난 기록.
 struct RecordsView: View {
-    /// 파일(대기 중인 제안) · 지난 기록(처리한 제안) · 보관함
+    /// 파일(대기 중인 제안) · 지난 기록(처리한 제안)
     enum Section: String, CaseIterable, Identifiable {
-        case files = "파일", history = "지난 기록", library = "보관함"
+        case files = "파일", history = "지난 기록"
         var id: String { rawValue }
     }
 
@@ -374,7 +374,6 @@ struct RecordsView: View {
                 switch state.recordsSection {
                 case .files: FilesView()
                 case .history: FileHistoryView()
-                case .library: if let chat = state.chat { LibraryView(library: chat.library) } else { Color.white }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -410,12 +409,12 @@ private struct HideWindowTitle: ViewModifier {
 
 struct MainWindow: View {
     enum Tab: String, CaseIterable, Identifiable {
-        case graph = "그래프", chat = "채팅", records = "기록 자료", calendar = "캘린더", settings = "설정", plugins = "플러그인"   // 업무는 그래프 옆 패널(TasksPanel), 파일·보관함·활동 로그는 기록 자료 안 구역
+        case graph = "그래프", chat = "채팅", records = "정리", connectors = "커넥터", settings = "설정", calendar = "캘린더"   // 업무는 그래프 옆 패널(TasksPanel), 파일·보관함·활동 로그는 기록 자료 안 구역
         var id: String { rawValue }
 
-        /// 캘린더는 켜져 있을 때, 플러그인은 채팅과 맞춤 설정에서만 아이콘 줄에 보인다.
-        static func visible(calendar: Bool = AppFeatures.calendarOn, selected: Tab = .graph) -> [Tab] {
-            allCases.filter { (calendar || $0 != .calendar) && ($0 != .plugins || selected == .chat || selected == .plugins) }
+        /// 캘린더는 켜져 있을 때만 아이콘 줄에 보인다.
+        static func visible(calendar: Bool = AppFeatures.calendarOn) -> [Tab] {
+            allCases.filter { calendar || $0 != .calendar }
         }
     }
 
@@ -424,18 +423,17 @@ struct MainWindow: View {
     static let initialTab: Tab = {
         switch ProcessInfo.processInfo.environment["WORKGRAPH_TAB"] {
         case "settings", "ai", "activity": return .settings
-        case "chat": return .chat
-        case "plugins", "skills": return .plugins
-        case "records", "files", "history", "library": return .records
+        case "chat", "results", "library": return .chat
+        case "connectors", "plugins", "skills": return .connectors
+        case "records", "files", "history": return .records
         case "calendar": return AppFeatures.calendarOn ? .calendar : .graph
         default: return .graph                                   // 권한·로그인 안내는 온보딩이 맡는다
         }
     }()
-    /// WORKGRAPH_TAB=history|library 면 기록 자료의 그 구역으로 시작한다
+    /// WORKGRAPH_TAB=history 면 정리의 지난 기록으로 시작한다
     static let initialRecordsSection: RecordsView.Section = {
         switch ProcessInfo.processInfo.environment["WORKGRAPH_TAB"] {
         case "history": return .history
-        case "library": return .library
         default: return .files
         }
     }()
@@ -476,7 +474,7 @@ struct MainWindow: View {
                             case .records: RecordsView()
                             case .calendar: CalendarView()
                             case .settings: SettingsView()
-                            case .plugins: CustomizeView()
+                            case .connectors: CustomizeView()
                             }
                         }
                     }

@@ -36,12 +36,13 @@ final class AppState: ObservableObject {
     /// 로그인해야 쓸 수 있다. `.ready` 가 되기 전에는 수집기도 배치도 돌지 않는다.
     @Published var phase: AppPhase = .login
     @Published var selectedTab: MainWindow.Tab = MainWindow.initialTab
+    var showsChatResultsOnOpen = ["results", "library"].contains(ProcessInfo.processInfo.environment["WORKGRAPH_TAB"] ?? "")
     /// 기록 자료 탭에서 보고 있는 구역 (메뉴 막대·알림이 파일 구역으로 바로 연다)
     @Published var recordsSection: RecordsView.Section = MainWindow.initialRecordsSection
     /// 설정 탭에서 보고 있는 구역 (권한 안내가 일반으로 바로 연다)
     @Published var settingsSection: SettingsView.Section = MainWindow.initialSettingsSection
-    /// 플러그인 탭(맞춤 설정)에서 보고 있는 구역. WORKGRAPH_TAB=skills 면 스킬로 시작
-    @Published var customizeSection: CustomizeSection = ProcessInfo.processInfo.environment["WORKGRAPH_TAB"] == "skills" ? .skills : .plugins
+    /// 커넥터 탭(맞춤 설정)에서 보고 있는 구역. WORKGRAPH_TAB=skills 면 스킬로 시작
+    @Published var customizeSection: CustomizeSection = ProcessInfo.processInfo.environment["WORKGRAPH_TAB"] == "skills" ? .skills : .connectors
     /// 업무 드로어(창 왼쪽 업무 목록)에서 고른 업무와 상세가 펼쳐졌는지. 업무 목록에서 눌러도, 그래프에서 눌러도 같은 드로어가 열린다
     @Published var selectedTaskId: Int64?
     @Published var taskDetailOpen = false { didSet { if !taskDetailOpen { openNode = nil; nodeTrail = [] } } }   // 드로어를 닫으면 노드 상세도 닫는다
@@ -154,15 +155,13 @@ final class AppState: ObservableObject {
             // themes -bool true (없으면 분야 붙이기는 꺼짐), calendar -bool true (없으면 일정 찾기는 꺼짐, AppFeatures)
             let batchConfig = Self.batchConfig(themes: UserDefaults.standard.bool(forKey: "themes"), pipeline: UserDefaults.standard.string(forKey: "batchPipeline"),
                                                calendar: AppFeatures.calendarOn)
-            let batcher = OntologyBatcher(db: database, llm: makeClient(), config: batchConfig)
+            let batcher = OntologyBatcher(db: database, llm: makeClient(), config: batchConfig, activityJudge: makeJudge())
             self.batcher = batcher
             self.consolidator = Consolidator(db: database, llm: makeClient())
             loadRetentionState()
             loadReview()
             let cardsOn = settings.screenCards && settings.captureScreenshots
             Task { await batcher.setScreenCards(cardsOn) }
-            let judge = settings.judgeEndpoint
-            Task { await batcher.setJudge(judge) }
             // 앱을 시작할 때 분야가 없거나 종류가 옛 판인 업무를 정리한다 (처음 한 번은 기존 업무 전부). 붙였으면 그래프를 새로 그린다
             Task { [weak self] in
                 if await batcher.assignThemes() != nil { self?.graphVersion += 1 }
@@ -354,6 +353,25 @@ final class AppState: ObservableObject {
         settings.llmUsesAPI ? makeOpenAIClient() : CodexResponsesClient(auth: codexAuth, model: settings.codexModel, reasoningEffort: "medium")
     }
 
+    private func makeJudge() -> ActivityJudging {
+        if settings.judgeProvider != "gpt" {
+            guard let endpoint = settings.judgeEndpoint else { return .unavailable("판단 모델 Jev의 API 키를 설정해 주세요.") }
+            return .jev(JevClient(endpoint: endpoint))
+        }
+        if settings.judgeGPTProvider == "codex" {
+            return .gpt(CodexResponsesClient(auth: codexAuth, model: settings.judgeCodexModel, reasoningEffort: "medium"))
+        }
+        let ajou = settings.judgeGPTProvider == "ajou"
+        let model = ajou ? settings.judgeAjouModel : settings.judgeAPIModel
+        let key = ajou ? settings.ajouAPIKey : settings.judgeAPIKey
+        let address = ajou ? AppSettings.ajouBaseURL : settings.judgeBaseURL
+        guard let url = URL(string: address.trimmingCharacters(in: .whitespacesAndNewlines)),
+              ["http", "https"].contains(url.scheme ?? ""), url.host != nil, !model.isEmpty, !ajou || !key.isEmpty else {
+            return .unavailable("판단 모델 GPT의 연결 주소, 모델, API 키를 확인해 주세요.")
+        }
+        return .gpt(OpenAICompatClient(baseURL: url, model: model, apiKey: key.isEmpty ? nil : key))
+    }
+
     /// 파일 정리 제안용: 알림이 바로 떠야 하므로 low
     private func makeQuickClient() -> any LLMClient {
         settings.llmUsesAPI ? makeOpenAIClient() : CodexResponsesClient(auth: codexAuth, model: settings.codexModel, reasoningEffort: "low")
@@ -427,7 +445,8 @@ final class AppState: ObservableObject {
 
     /// 선택한 ChatGPT 연결만 확인한다. 취소된 검사 결과는 새 로그인·검사에 적용하지 않는다.
     func loadCodexModels(force: Bool = false) async {
-        let checkBatch = settings.llmProvider == "codex" && (force || codexModels.isEmpty)
+        let usesCodexJudge = settings.judgeProvider == "gpt" && settings.judgeGPTProvider == "codex"
+        let checkBatch = (settings.llmProvider == "codex" || usesCodexJudge) && (force || codexModels.isEmpty)
         let checkChat = settings.effectiveChatProvider == "codex" && (force || chatCodexModels.isEmpty)
         guard codexStatus != .loggedOut, !codexModelsLoading, checkBatch || checkChat else { return }
         let id = UUID()
@@ -458,7 +477,7 @@ final class AppState: ObservableObject {
                     guard codexModelTaskID == id else { return }
                     codexModels = result.models
                     codexModelsError = verificationError(result, empty: "현재 연결에서 사용할 수 있는 정리 모델이 없습니다.")
-                    if result.isComplete, let first = result.models.first,
+                    if settings.llmProvider == "codex", result.isComplete, let first = result.models.first,
                        !result.models.contains(where: { $0.slug == settings.codexModel }),
                        !result.failures.contains(where: { $0.model.slug == settings.codexModel }) {
                         settings.codexModel = result.models.first { $0.slug == CodexResponsesClient.defaultModel }?.slug ?? first.slug
@@ -617,7 +636,11 @@ final class AppState: ObservableObject {
                 applied = true
                 AppLog.write("정리 성공: 세션 \(stats.sessions + stats.sessionsExtended), 새 업무 \(stats.tasksCreated), 자료 \(stats.resources)")
                 lastBatchText = MenuBarModel.batchSummary(clock: Self.clock.string(from: Date()), newTasks: stats.tasksCreated, resources: stats.resources)
-                announced += announceEventSuggestions(limit: 3 - announced)   // 밀린 구간이 길어도 찾은 일정은 바로 알린다
+                announced += announceEventSuggestions(limit: 3 - announced)
+                if let waiting = stats.deferredJudgmentRows, waiting > 0 {
+                    lastBatchText += " · 판단 대기 \(waiting)행"
+                    break
+                }
                 continue
             case .failed(let message):
                 failed = true
@@ -657,7 +680,7 @@ final class AppState: ObservableObject {
         NSApp.setActivationPolicy(settings.showDockIcon ? .regular : .accessory)
         let collectorSettings = settings.collector
         let client = makeClient()
-        let judge = settings.judgeEndpoint
+        let judge = makeJudge()
         let cardsOn = settings.screenCards && settings.captureScreenshots
         if let db {
             suggester = FolderSuggester(db: db, llm: makeQuickClient())
@@ -666,8 +689,7 @@ final class AppState: ObservableObject {
         folderIndex = nil                                   // 검색 폴더가 바뀌었을 수 있으니 다음 제안 때 다시 색인
         Task { [coordinator, batcher, consolidator] in
             await coordinator?.update(settings: collectorSettings)
-            await batcher?.setLLM(client)
-            await batcher?.setJudge(judge)
+            await batcher?.setModels(organizer: client, judge: judge)
             await batcher?.setScreenCards(cardsOn)
             await consolidator?.setLLM(client)
         }
@@ -687,7 +709,8 @@ final class AppState: ObservableObject {
             }
             return
         }
-        switch await makeClient().selfTest() {
+        let client = CodexResponsesClient(auth: codexAuth, model: settings.codexModel, reasoningEffort: "medium", timeout: 45)
+        switch await client.selfTest() {
         case .success(let message): llmTestResult = "연결됨. \(message)"
         case .failure(let error): llmTestResult = String(error.description.prefix(300))
         }

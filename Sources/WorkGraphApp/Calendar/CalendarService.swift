@@ -33,7 +33,7 @@ final class CalendarService: ObservableObject {
     /// 제안을 등록·무시했거나 캘린더에 이미 있어 뺐을 때 (떠 있는 알림을 지운다)
     var onDecided: ((Int64) -> Void)?
     private var announcer = EventAnnouncer()
-    /// 앱에서 직접 연결한 구글 계정 (PluginAuth "gcal"): 연결 여부, 연결·읽기 중, 오류 문구
+    /// 앱에서 직접 연결한 구글 계정 (ConnectorAuth "gcal"): 연결 여부, 연결·읽기 중, 오류 문구
     @Published private(set) var googleConnected = false
     @Published private(set) var googleBusy = false
     @Published private(set) var googleError: String?
@@ -45,7 +45,7 @@ final class CalendarService: ObservableObject {
     private init() {
         guard AppFeatures.calendarOn else { return }
         granted = Self.isGranted
-        googleConnected = (try? PluginAuth.isConnected("gcal")) ?? false
+        googleConnected = (try? ConnectorAuth.isConnected("gcal")) ?? false
         NotificationCenter.default.addObserver(forName: .EKEventStoreChanged, object: store, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
         }
@@ -236,9 +236,9 @@ final class CalendarService: ObservableObject {
 
 extension CalendarService {
     /// 이 빌드에 구글 클라이언트 ID 가 있어 연결할 수 있는지
-    var googleAvailable: Bool { (try? PluginAuth.isAvailable("gcal")) ?? false }
+    var googleAvailable: Bool { (try? ConnectorAuth.isAvailable("gcal")) ?? false }
 
-    private var google: GoogleCalendarClient { .live(token: { try await PluginAuth.accessToken("gcal") }) }
+    private var google: GoogleCalendarClient { .live(token: { try await ConnectorAuth.accessToken("gcal") }) }
     private static let googleExpired = "구글 로그인이 만료됐어요. 다시 연결해 주세요."
 
     /// 브라우저에서 구글 로그인 → 캘린더 목록을 받는다
@@ -246,8 +246,8 @@ extension CalendarService {
         googleBusy = true
         defer { googleBusy = false }
         do {
-            let clientID = try PluginAuth.configuration("google-client", environment: "WORKGRAPH_GOOGLE_CLIENT_ID")
-            try await PluginAuth.connectGoogle(["gcal"], clientID: clientID)
+            let clientID = try ConnectorAuth.configuration("google-client", environment: "WORKGRAPH_GOOGLE_CLIENT_ID")
+            try await ConnectorAuth.connectGoogle(["gcal"], clientID: clientID)
             googleConnected = true
             googleError = nil
             await loadGoogle()
@@ -258,7 +258,7 @@ extension CalendarService {
 
     /// 이 Mac 에 저장한 구글 토큰만 지운다. [등록]할 곳이 구글이었으면 실록으로
     func disconnectGoogle() {
-        try? PluginAuth.disconnect("gcal")
+        try? ConnectorAuth.disconnect("gcal")
         googleConnected = false
         googleCalendars = []
         googleCache = [:]

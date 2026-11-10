@@ -103,12 +103,34 @@ public struct ProjectStore: Sendable {
     }
 
     public func proposals() throws -> [ProjectProposal] {
-        try db.writer.read { try Self.proposals($0) }
+        try db.writer.read { try Self.proposalGroups($0).map(\.proposal) }
     }
 
     static func proposals(_ conn: Database) throws -> [ProjectProposal] {
         try String.fetchAll(conn, sql: "SELECT payload FROM project_proposals ORDER BY rowid")
             .map { try JSONDecoder().decode(ProjectProposal.self, from: Data($0.utf8)) }
+    }
+
+    /// 기존 프로젝트는 ID, 새 프로젝트 제안은 공백·대소문자를 제외한 제목으로 묶는다.
+    /// 저장된 중복 행의 ID도 유지해 수락·무시할 때 전체를 함께 처리한다.
+    private static func proposalGroups(_ conn: Database) throws -> [(proposal: ProjectProposal, ids: [String])] {
+        var groups: [(proposal: ProjectProposal, ids: [String])] = []
+        var positions: [String: Int] = [:]
+        for proposal in try proposals(conn) {
+            let title = proposal.title.split(whereSeparator: \.isWhitespace).joined().lowercased()
+            let key = proposal.projectID.map { "project:\($0)" } ?? "title:\(title)"
+            if let index = positions[key] {
+                groups[index].ids.append(proposal.id)
+                var seen = Set(groups[index].proposal.items.map(\.id))
+                groups[index].proposal.items += proposal.items.filter { seen.insert($0.id).inserted }
+                let reasons = groups[index].proposal.reason.components(separatedBy: "\n")
+                if !reasons.contains(proposal.reason) { groups[index].proposal.reason += "\n" + proposal.reason }
+            } else {
+                positions[key] = groups.count
+                groups.append((proposal, [proposal.id]))
+            }
+        }
+        return groups
     }
 
     public func items() throws -> [ProjectItem] { try db.writer.read { try Self.items($0) } }
@@ -145,7 +167,7 @@ public struct ProjectStore: Sendable {
     /// 처음에는 모든 기존 항목을 순서대로 검토하고, 이후에는 새 항목만 판단한다. 이전 미분류 항목은 연결 근거로 제공한다.
     public func review(limit: Int = 40) throws -> ProjectReview {
         try db.writer.read { conn in
-            let proposals = try Self.proposals(conn)
+            let proposals = try Self.proposalGroups(conn).map(\.proposal)
             let pending = Set(proposals.flatMap { $0.items.map(\.id) })
             let reviewed = Dictionary(uniqueKeysWithValues: try Row.fetchAll(conn, sql: "SELECT * FROM project_reviewed")
                 .map { ($0["item_id"] as String, $0["decision"] as String) })
@@ -207,13 +229,20 @@ public struct ProjectStore: Sendable {
                     try Self.mark(id, decision: "seen", conn)
                 }
             }
+            for group in try Self.proposalGroups(conn) where group.ids.count > 1 {
+                try Self.save(group.proposal, conn)
+                for id in group.ids.dropFirst() {
+                    try conn.execute(sql: "DELETE FROM project_proposals WHERE id = ?", arguments: [id])
+                }
+            }
         }
     }
 
     /// 수락한 제안만 생성·분류한다. 다른 곳으로 옮겨진 항목을 덮어쓰지 않는다.
     @discardableResult public func accept(_ id: String, title: String) throws -> ChatProject {
         try db.writer.write { conn in
-            guard let proposal = try Self.proposals(conn).first(where: { $0.id == id }) else { throw ChatToolError.unavailable("제안을 찾을 수 없습니다.") }
+            guard let group = try Self.proposalGroups(conn).first(where: { $0.ids.contains(id) }) else { throw ChatToolError.unavailable("제안을 찾을 수 없습니다.") }
+            let proposal = group.proposal
             let current = Dictionary(uniqueKeysWithValues: try Self.items(conn).map { ($0.id, $0) })
             guard proposal.items.allSatisfy({ current[$0.id] != nil && current[$0.id]?.projectID == nil }) else {
                 throw ChatToolError.unavailable("제안의 항목이 변경되었습니다. 제안을 무시한 뒤 다시 확인하세요.")
@@ -230,24 +259,30 @@ public struct ProjectStore: Sendable {
             project.updatedAt = Date().timeIntervalSince1970
             try Self.save(project, conn)
             for item in proposal.items { try Self.move(item.id, to: project.id, conn) }
-            try conn.execute(sql: "DELETE FROM project_proposals WHERE id = ?", arguments: [id])
+            for id in group.ids { try conn.execute(sql: "DELETE FROM project_proposals WHERE id = ?", arguments: [id]) }
             return project
         }
     }
 
     public func dismiss(_ id: String) throws {
         try db.writer.write { conn in
-            guard let proposal = try Self.proposals(conn).first(where: { $0.id == id }) else { return }
-            for item in proposal.items { try Self.mark(item.id, decision: "dismissed", conn) }
-            try conn.execute(sql: "DELETE FROM project_proposals WHERE id = ?", arguments: [id])
+            guard let group = try Self.proposalGroups(conn).first(where: { $0.ids.contains(id) }) else { return }
+            for item in group.proposal.items { try Self.mark(item.id, decision: "dismissed", conn) }
+            for id in group.ids { try conn.execute(sql: "DELETE FROM project_proposals WHERE id = ?", arguments: [id]) }
         }
     }
 
     public func move(_ itemID: String, to projectID: String?) throws {
+        try move([itemID], to: projectID)
+    }
+
+    public func move(_ itemIDs: [String], to projectID: String?) throws {
         try db.writer.write { conn in
-            try Self.move(itemID, to: projectID, conn)
-            try Self.mark(itemID, decision: "manual", conn)
-            try Self.removeFromProposals(itemID, conn)
+            for itemID in Set(itemIDs) {
+                try Self.move(itemID, to: projectID, conn)
+                try Self.mark(itemID, decision: "manual", conn)
+                try Self.removeFromProposals(itemID, conn)
+            }
         }
     }
 

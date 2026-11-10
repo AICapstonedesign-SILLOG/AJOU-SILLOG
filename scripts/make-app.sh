@@ -1,5 +1,5 @@
 #!/bin/bash
-# release 빌드 → 코드 서명 → ~/Applications/SILLOG.app 설치.
+# release 빌드 → 코드 서명 → ~/Applications/Sillog.app 설치.
 # 서명 인증서를 고정해 두면 다시 빌드해도 macOS 권한(손쉬운 사용·화면 기록)이 유지된다.
 #   SIGN_IDENTITY="Apple Development: ..." scripts/make-app.sh   # 인증서 지정
 #   SIGN_IDENTITY=- scripts/make-app.sh                          # ad-hoc (빌드할 때마다 권한을 다시 줘야 함)
@@ -22,14 +22,14 @@ swift build --package-path "$STAGE_DIR" -c release --product WorkGraphApp --scra
 BIN_DIR="$(swift build --package-path "$STAGE_DIR" -c release --show-bin-path --scratch-path "$BUILD_DIR" --cache-path "$BUILD_DIR/cache" --config-path "$BUILD_DIR/config" --security-path "$BUILD_DIR/security" --disable-sandbox)"
 APP="$BUILD_DIR/Sillog.app"
 APP_LINK="$ROOT/build/Sillog.app"
-INSTALLED_APP="$HOME/Applications/SILLOG.app"
+INSTALLED_APP="$HOME/Applications/Sillog.app"
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN_DIR/WorkGraphApp" "$APP/Contents/MacOS/Sillog"
 cp -R "$ROOT/Sources/WorkGraphApp/Resources/graph" "$APP/Contents/Resources/graph"
 cp -R "$ROOT/Sources/WorkGraphApp/Resources/calendar" "$APP/Contents/Resources/calendar"   # 캘린더 화면 (FullCalendar 6, MIT)
-cp -R "$ROOT/Sources/WorkGraphApp/Resources/PluginIcons" "$APP/Contents/Resources/PluginIcons"
+cp -R "$ROOT/Sources/WorkGraphApp/Resources/ConnectorIcons" "$APP/Contents/Resources/ConnectorIcons"
 cp -R "$ROOT/Sources/WorkGraphApp/Resources/Brand" "$APP/Contents/Resources/Brand"
 cp -R "$BIN_DIR/WorkGraph_WorkGraphCore.bundle" "$APP/Contents/Resources/"
 cp -R "$BIN_DIR/SwiftMath_SwiftMath.bundle" "$APP/Contents/Resources/"    # 채팅 수식 글꼴 (없으면 수식을 그릴 때 앱이 멈춘다)
@@ -43,8 +43,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <plist version="1.0">
 <dict>
   <key>CFBundleIdentifier</key><string>com.capstone.workgraph</string>
-  <key>CFBundleName</key><string>SILLOG</string>
-  <key>CFBundleDisplayName</key><string>SILLOG</string>
+  <key>CFBundleName</key><string>Sillog</string>
+  <key>CFBundleDisplayName</key><string>Sillog</string>
   <key>CFBundleExecutable</key><string>Sillog</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>0.1.0</string>
@@ -52,6 +52,12 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>NSHighResolutionCapable</key><true/>
+  <key>CFBundleURLTypes</key>
+  <array><dict>
+    <key>CFBundleURLName</key><string>com.capstone.workgraph.oauth</string>
+    <key>CFBundleURLSchemes</key><array><string>sillog</string></array>
+    <key>CFBundleTypeRole</key><string>Viewer</string>
+  </dict></array>
   <key>NSDownloadsFolderUsageDescription</key><string>새로 내려받은 파일을 하던 업무와 연결해 기록합니다.</string>
   <key>NSMicrophoneUsageDescription</key><string>메뉴 막대에서 녹음할 때 마이크 소리를 녹음합니다.</string>
   <key>NSSpeechRecognitionUsageDescription</key><string>녹음한 말을 이 Mac 안에서 글로 받아씁니다.</string>
@@ -67,11 +73,16 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
-# 공개 OAuth 클라이언트 ID는 앱 제공자가 빌드할 때 설정한다. 구글 데스크톱 앱 클라이언트 시크릿은 토큰 교환에 필요하고
-# 설치형 앱에서는 비밀로 지킬 수 없는 값이라(구글 안내) 함께 넣는다. 그 밖의 비밀키는 번들에 넣지 않는다.
-for key in WORKGRAPH_GOOGLE_CLIENT_ID WORKGRAPH_GOOGLE_CLIENT_SECRET WORKGRAPH_GITHUB_CLIENT_ID WORKGRAPH_NOTION_CLIENT_ID; do
-  if [ -n "${!key:-}" ]; then
-    plutil -insert "$key" -string "${!key}" "$APP/Contents/Info.plist"
+# 공식 배포의 공개 클라이언트 설정을 기본으로 쓰고, 별도 배포자는 환경 변수로 바꿀 수 있다.
+# 구글 설치형 클라이언트 시크릿은 공개 클라이언트 정보이며, 사용자 토큰·서버 비밀키는 넣지 않는다.
+OAUTH_CONFIG="$ROOT/Config/OAuthClients.plist"
+for key in WORKGRAPH_GOOGLE_CLIENT_ID WORKGRAPH_GOOGLE_CLIENT_SECRET WORKGRAPH_GITHUB_CLIENT_ID WORKGRAPH_NOTION_CLIENT_ID WORKGRAPH_SLACK_CLIENT_ID; do
+  oauth_value="${!key:-}"
+  if [ -z "$oauth_value" ] && [ -f "$OAUTH_CONFIG" ]; then
+    if ! oauth_value="$(plutil -extract "$key" raw -o - "$OAUTH_CONFIG" 2>/dev/null)"; then oauth_value=""; fi
+  fi
+  if [ -n "$oauth_value" ]; then
+    plutil -insert "$key" -string "$oauth_value" "$APP/Contents/Info.plist"
   fi
 done
 

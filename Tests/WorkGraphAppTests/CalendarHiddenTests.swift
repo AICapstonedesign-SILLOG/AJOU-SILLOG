@@ -15,8 +15,8 @@ final class CalendarHiddenTests: XCTestCase {
     }
 
     func testTheRailHidesTheCalendarTab() {
-        XCTAssertEqual(MainWindow.Tab.visible(calendar: false).map(\.rawValue), ["그래프", "채팅", "기록 자료", "설정"])
-        XCTAssertEqual(MainWindow.Tab.visible(calendar: true, selected: .chat).map(\.rawValue), ["그래프", "채팅", "기록 자료", "캘린더", "설정", "플러그인"])
+        XCTAssertEqual(MainWindow.Tab.visible(calendar: false).map(\.rawValue), ["그래프", "채팅", "정리", "커넥터", "설정"])
+        XCTAssertEqual(MainWindow.Tab.visible(calendar: true).map(\.rawValue), ["그래프", "채팅", "정리", "커넥터", "설정", "캘린더"])
     }
 
     func testTheMenuBarPanelHasNoCalendarRow() {

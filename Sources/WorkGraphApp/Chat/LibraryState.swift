@@ -80,6 +80,9 @@ final class LibraryState: ObservableObject {
         } catch { self.error = error.localizedDescription; return [] }
     }
     func projectIDs(_ item: ChatLibraryItem) -> [String] { (try? store.projectIDs(for: item.id)) ?? [] }
+    func rename(_ item: ChatLibraryItem, title: String) {
+        do { try store.rename(item.id, title: title); changed() } catch { self.error = error.localizedDescription }
+    }
     func delete(_ item: ChatLibraryItem) {
         do { try store.delete(item); changed() } catch { self.error = error.localizedDescription }
     }

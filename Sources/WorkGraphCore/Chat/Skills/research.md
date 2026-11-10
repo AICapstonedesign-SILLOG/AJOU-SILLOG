@@ -1,20 +1,17 @@
-Use this to investigate a question, compare options, or synthesize evidence.
+# 리서치
 
-**Good output.** An answer to the user's actual question, judged on criteria drawn from their situation. State in one line at the top the question, criteria, and time frame you used; ask only if a different reading would change the result substantially. Then include what the request needs:
-- 질문과 답: the answer in one paragraph, with your confidence and what it rests on.
-- 비교: a table on the user's criteria, with a source for each cell where possible. Make a CSV when the user wants the data as a table.
-- 근거: findings with each source's strength (primary, secondary, opinion) and date.
-- 상충·불확실: where sources disagree, and why when that is known.
-- 내 상황에 대한 함의: what the findings mean for the user's project, problem, or pending decision.
-- 기존에 본 자료와 새로 확인한 것: what the user had already seen, and what this research adds.
-- 남은 질문: open questions and what would answer them.
-- 출처: with publication and access dates.
+## 목표
+사용자의 질문에 직접 답하고, 같은 기준으로 비교한 근거와 한계를 제공한다. 출처 수를 늘리는 것이 아니라 판단에 필요한 정보를 확보한다.
 
-**Evidence only Sillog has.**
-- What prompted the question: the task it belongs to, a problem the user hit, and constraints in their files or past conversations, such as budget, tech stack, deadline, or requirements. These become the criteria.
-- What the user already read: pages, papers, and documents on the topic they opened or saved, which ones held their attention longest, and earlier research artifacts. Build on them instead of presenting them as new findings, and say where new sources agree or disagree with them.
-- Implications: for each important finding, what it means for the user's case, labeled as inference where it goes beyond the sources. A generic research tool can't write this part.
+## 작업 순서
+1. 질문, 비교 대상, 결정 기준, 기간을 요청에서 정한다. 특정 자료만 사용하라는 조건이나 허용된 검색 범위를 따른다. 이미 제공된 자료로 충분하면 불필요한 외부 검색을 하지 않는다.
+2. 원문·공식 문서·원자료를 우선 읽는다. 최신성이 중요한 사실은 자료의 발행일과 사건·관측일을 구분하고, 확인 시점을 적는다. 검색 요약만 보고 본문을 확인했다고 말하지 않는다.
+3. 각 주장에 출처와 적용 범위를 붙인다. 비교표는 모든 대상에 동일한 기준을 적용한다. 값이 없으면 미확인으로 두며, 자료가 없다는 사실을 성능이 나쁘거나 기능이 없다는 증거로 쓰지 않는다.
+4. 상충하는 자료는 조건·버전·측정 방식·시점의 차이를 먼저 확인한다. 해소되지 않으면 양쪽 근거와 남은 불확실성을 함께 제시한다. 서로 다른 조건의 수치를 합쳐 단일 순위를 만들지 않는다.
+5. 확인된 사실과 사용자 상황에 대한 추론을 구분한다. 추천이 필요한 경우 기준에 따른 이유와 결론이 달라지는 조건을 설명한다. 정보가 부족하면 조건부 결론을 내리거나 핵심 공백을 질문한다.
 
-**Routing.** Check the records before searching outside. Give independent subtopics to research agents along with the criteria and the sources the user already has, so they don't repeat them. When updating earlier research, find the previous artifact and report what changed, including sources that have since been updated or superseded.
+## 결과물
+결론을 먼저 쓰고 비교·근거·불확실성·다음 확인 항목을 필요한 만큼 덧붙인다. 각 출처는 지지하는 주장과 연결한다. 사용자가 이미 본 자료가 주어졌다면 새로 확인한 점을 구분한다. 짧은 질문에 불필요한 긴 보고서 구조를 강요하지 않는다.
 
-완료 기준: a direct answer; criteria drawn from the user's situation; important claims checked in the original sources, with dates; conflicts stated; implications tied to the user's records; the user's earlier reading accounted for; open questions listed.
+## 완료 기준
+실제 질문에 답했으며 비교 기준과 시점이 일관된다. 출처에서 확인한 내용만 사실로 적고, 추론·미확인·조회 실패를 구분한다. 읽지 않은 자료, 가짜 링크·논문·인용을 만들지 않는다.

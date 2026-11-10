@@ -1,4 +1,5 @@
 import SwiftUI
+import QuickLookThumbnailing
 import WorkGraphCore
 
 /// 보관함 종류별 화면과 홈 (Figma LB-25, LB-04, LB-06, LB-16, LB-17, LB-18). 수치는 모두 앱 데이터로 계산한다.
@@ -81,20 +82,22 @@ struct LibraryActions {
     var open: (LibraryEntry) -> Void
     var export: (ChatLibraryItem) -> Void
     var delete: (ChatLibraryItem) -> Void
-    var projectCount: (ChatLibraryItem) -> Int
+    let rename: (ChatLibraryItem) -> Void
+    let url: (ChatLibraryItem) -> URL
+    let modified: (LibraryEntry) -> Double
+    let projectCount: (ChatLibraryItem) -> Int
 }
 
-/// 파일에서 읽은 첫 줄, 글자 수, 표 여부 (저장한 답변과 결과물 카드용)
+/// 저장한 답변의 첫 줄과 글자 수.
 struct LibraryTextInfo {
     var first = ""
     var count = 0
-    var hasTable = false
 
     static func read(_ url: URL) -> LibraryTextInfo {
         guard let raw = try? String(contentsOf: url, encoding: .utf8) else { return .init() }
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("<") ? plainText(raw) : raw
         let line = text.split(separator: "\n").map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "#>*- \t")) }.first { !$0.isEmpty } ?? ""
-        return .init(first: line, count: text.count, hasTable: raw.localizedCaseInsensitiveContains("<table") || raw.contains("|---"))
+        return .init(first: line, count: text.count)
     }
 
     /// HTML 결과물: 머리(head, style, script)와 태그를 걷어 낸 본문 글. 카드 미리보기에 <!doctype html> 이 보이지 않게
@@ -133,8 +136,9 @@ private struct KindRow<Content: View>: View {
             .overlay(alignment: .bottom) { Rectangle().fill(Brand.line).frame(height: 1) }
             .contextMenu {
                 if case .item(let item) = entry {
+                    Button("제목 바꾸기") { actions.rename(item) }
                     Button("파일 내보내기") { actions.export(item) }
-                    Button("보관함에서 삭제", role: .destructive) { actions.delete(item) }
+                    Button("결과물에서 삭제", role: .destructive) { actions.delete(item) }
                 }
             }
     }
@@ -180,18 +184,18 @@ struct LibraryAllList: View {
         let counts = LibraryLook.order.map { kind in (kind, entries.filter { $0.kind == kind }.count) }
         VStack(spacing: 0) {
             KindHeader(title: "전체 \(entries.count)개",
-                       summary: counts.filter { $0.1 > 0 }.map { "\(LibraryLook.name($0.0)) \($0.1)" }.joined(separator: "     ") + "     최근 추가한 순서예요")
-            ColumnHeads(heads: [("제목", 442), ("종류", 150), ("추가한 때", 0)])
+                       summary: counts.filter { $0.1 > 0 }.map { "\(LibraryLook.name($0.0)) \($0.1)" }.joined(separator: "     "))
+            ColumnHeads(heads: [("제목", 248), ("종류", 112), ("수정일", 0)])
             ForEach(entries) { entry in
                 KindRow(entry: entry, actions: actions) {
                     HStack(spacing: 0) {
-                        lead(entry.kind == "recording" ? "waveform" : "doc.text")
-                        title(entry.title, 442)
+                        entryThumbnail(entry, actions: actions)
+                        title(entry.title, 248)
                         HStack(spacing: 6) {
                             Circle().fill(LibraryLook.color(entry.kind)).frame(width: 6, height: 6)
                             Text(LibraryLook.name(entry.kind)).font(Brand.suit(11)).foregroundStyle(Brand.tabText)
-                        }.frame(width: 150, alignment: .leading)
-                        cell(LibraryLook.when(entry.date), 0, gray: true)
+                        }.frame(width: 112, alignment: .leading)
+                        cell(LibraryLook.when(actions.modified(entry)), 0, gray: true)
                     }
                 }
             }
@@ -212,22 +216,22 @@ struct LibraryRecordingList: View {
         VStack(spacing: 0) {
             KindHeader(title: "녹음 \(recordings.count)개",
                        summary: "총 길이 \(RecordingText.duration(total))     받아쓰기 완료 \(ready)     내용 없음 \(empty)     실패 \(failed)")
-            ColumnHeads(heads: [("제목", 372), ("녹음한 때", 120), ("길이", 170), ("받아쓰기", 0)])
+            ColumnHeads(heads: [("제목", 220), ("녹음한 때", 112), ("길이", 116), ("받아쓰기", 0)])
             ForEach(recordings) { recording in
                 let status = recording.libraryStatus
                 KindRow(entry: .recording(recording), actions: actions) {
                     HStack(spacing: 0) {
                         lead("waveform")
-                        title(recording.displayTitle, 372)
-                        cell(LibraryLook.when(recording.startedAt), 120, gray: true)
+                        title(recording.displayTitle, 220)
+                        cell(LibraryLook.when(recording.startedAt), 112, gray: true)
                         HStack(spacing: 8) {
                             Text(RecordingText.duration(recording.duration)).font(Brand.suit(11)).foregroundStyle(Brand.tabText)
                                 .frame(width: 64, alignment: .leading)
                             if recording.duration > 0 {
                                 RoundedRectangle(cornerRadius: 2).fill(LibraryLook.recording)
-                                    .frame(width: max(4, 80 * recording.duration / longest), height: 4)
+                                    .frame(width: max(4, 42 * recording.duration / longest), height: 4)
                             }
-                        }.frame(width: 170, alignment: .leading)
+                        }.frame(width: 116, alignment: .leading)
                         Text(status.text).font(Brand.suit(11, recording.status == .failed ? .medium : .regular)).foregroundStyle(status.color)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
@@ -244,15 +248,15 @@ struct LibraryUploadList: View {
     var body: some View {
         VStack(spacing: 0) {
             KindHeader(title: "업로드 \(items.count)개", summary: "내가 올린 파일의 복사본이에요")
-            ColumnHeads(heads: [("이름", 372), ("형식", 100), ("올린 때", 150), ("연결한 프로젝트", 0)])
+            ColumnHeads(heads: [("이름", 228), ("형식", 88), ("수정일", 114), ("연결한 프로젝트", 0)])
             ForEach(items) { item in
                 let projects = actions.projectCount(item)
                 KindRow(entry: .item(item), actions: actions, spacing: 16) {
                     HStack(spacing: 0) {
-                        lead("doc.text")
-                        title(item.title, 372)
-                        cell(LibraryLook.format(LibraryLook.ext(item)), 100)
-                        cell(LibraryLook.when(item.createdAt), 150, gray: true)
+                        entryThumbnail(.item(item), actions: actions)
+                        title(item.title, 228)
+                        cell(LibraryLook.format(LibraryLook.ext(item)), 88)
+                        cell(LibraryLook.when(actions.modified(.item(item))), 114, gray: true)
                         cell(projects > 0 ? "프로젝트 \(projects)개" : "연결 없음", 0)
                     }
                 }
@@ -267,7 +271,6 @@ struct LibraryUploadList: View {
 struct LibraryGeneratedGrid: View {
     let items: [ChatLibraryItem]
     let actions: LibraryActions
-    let infos: [String: LibraryTextInfo]
 
     private var formatText: String {
         var formats: [String: Int] = [:]
@@ -283,15 +286,17 @@ struct LibraryGeneratedGrid: View {
                 ForEach(items) { item in
                     Button { actions.open(.item(item)) } label: {
                         VStack(alignment: .leading, spacing: 0) {
-                            DocumentPreview(hasTable: infos[item.id]?.hasTable ?? false)
+                            LibraryThumbnail(url: actions.url(item), size: CGSize(width: 228, height: 146))
+                                .frame(maxWidth: .infinity).background(Brand.paper)
                             Text(item.title).font(Brand.suit(12, .medium)).foregroundStyle(Brand.tabText).lineLimit(1).padding(.top, 14)
-                            Text("\(LibraryLook.format(LibraryLook.ext(item)))     \(LibraryLook.when(item.createdAt))")
+                            Text("\(LibraryLook.format(LibraryLook.ext(item)))     \(LibraryLook.when(actions.modified(.item(item))))")
                                 .font(Brand.suit(10)).foregroundStyle(Brand.gray).padding(.top, 6)
                         }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
                     }.buttonStyle(.plain)
                         .contextMenu {
+                            Button("제목 바꾸기") { actions.rename(item) }
                             Button("파일 내보내기") { actions.export(item) }
-                            Button("보관함에서 삭제", role: .destructive) { actions.delete(item) }
+                            Button("결과물에서 삭제", role: .destructive) { actions.delete(item) }
                         }
                 }
             }.padding(.top, 26)
@@ -299,32 +304,56 @@ struct LibraryGeneratedGrid: View {
     }
 }
 
-/// 흰 쪽 하나가 있는 문서 모양 그림 (바탕 385x200, 쪽 160x164)
-private struct DocumentPreview: View {
-    let hasTable: Bool
-    var body: some View {
-        ZStack {
-            Rectangle().fill(Brand.paper)
-            VStack(alignment: .leading, spacing: 0) {
-                RoundedRectangle(cornerRadius: 2).fill(LibraryLook.recording).frame(width: 70, height: 8)
-                VStack(alignment: .leading, spacing: 6) {
-                    line(132); line(120)
-                    if hasTable {
-                        HStack(spacing: 4) {
-                            RoundedRectangle(cornerRadius: 2).fill(Color(hex: 0xEFE9E4)).frame(width: 64, height: 40)
-                            RoundedRectangle(cornerRadius: 2).fill(Color(hex: 0xEFE9E4)).frame(width: 64, height: 40)
-                        }.padding(.vertical, 6)
-                        line(132); line(110)
-                    } else {
-                        line(132).padding(.top, 8); line(100); line(126); line(90)
-                    }
-                }.padding(.top, 14)
-                Spacer(minLength: 0)
-            }.padding(14).frame(width: 160, height: 164, alignment: .topLeading).background(.white)
-        }.frame(maxWidth: .infinity).frame(height: 200).clipShape(RoundedRectangle(cornerRadius: 6))
+private func entryThumbnail(_ entry: LibraryEntry, actions: LibraryActions) -> some View {
+    Group {
+        switch entry {
+        case .item(let item):
+            LibraryThumbnail(url: actions.url(item), size: CGSize(width: 26, height: 28))
+        case .recording: lead("waveform")
+        }
+    }.frame(width: 28).padding(.trailing, 6)
+}
+
+private struct LibraryThumbnail: View {
+    let url: URL
+    let size: CGSize
+    @State private var image: NSImage?
+
+    private var symbol: String {
+        switch url.pathExtension.lowercased() {
+        case "png", "jpeg", "jpg", "heic", "gif", "svg", "webp": "photo"
+        case "pdf": "doc.richtext"
+        case "csv", "xls", "xlsx", "tsv": "tablecells"
+        case "ppt", "pptx", "key": "rectangle.on.rectangle"
+        case "mp4", "mov", "webm": "film"
+        case "m4a", "mp3", "wav": "waveform"
+        case "html", "htm", "json": "chevron.left.forwardslash.chevron.right"
+        case "zip", "tar", "gz": "archivebox"
+        default: "doc.text"
+        }
     }
-    private func line(_ width: CGFloat) -> some View {
-        RoundedRectangle(cornerRadius: 2).fill(Brand.line).frame(width: width, height: 4)
+
+    var body: some View {
+        ZStack(alignment: .bottomTrailing) {
+            Group {
+                if let image { Image(nsImage: image).resizable().scaledToFit() }
+                else { Image(systemName: symbol).font(.system(size: min(size.width / 2, 26))).foregroundStyle(Brand.gray) }
+            }.frame(width: size.width, height: size.height)
+            if image != nil {
+                Image(systemName: symbol).font(.system(size: size.width > 40 ? 11 : 7))
+                    .foregroundStyle(Brand.ink).padding(size.width > 40 ? 5 : 2)
+                    .background(.white, in: RoundedRectangle(cornerRadius: 4))
+            }
+        }
+        .accessibilityHidden(true)
+        .task(id: url) {
+            image = nil
+            guard FileManager.default.fileExists(atPath: url.path) else { return }
+            let request = QLThumbnailGenerator.Request(fileAt: url, size: size, scale: 2, representationTypes: .thumbnail)
+            if let representation = try? await QLThumbnailGenerator.shared.generateBestRepresentation(for: request), !Task.isCancelled {
+                image = representation.nsImage
+            }
+        }
     }
 }
 
@@ -334,7 +363,7 @@ struct LibraryNoteList: View {
     let actions: LibraryActions
     let infos: [String: LibraryTextInfo]
     var body: some View {
-        VStack(spacing: 0) {
+        LazyVStack(spacing: 0) {
             KindHeader(title: "저장한 답변 \(items.count)개", summary: "채팅 답변을 저장해 둔 글이에요").padding(.bottom, 18)
             ForEach(items) { item in
                 let projects = actions.projectCount(item)
@@ -342,9 +371,10 @@ struct LibraryNoteList: View {
                 KindRow(entry: .item(item), actions: actions, spacing: 18) {
                     VStack(spacing: 8) {
                         HStack {
+                            entryThumbnail(.item(item), actions: actions)
                             Text(item.title).font(Brand.suit(12, .medium)).foregroundStyle(Brand.tabText).lineLimit(1)
                             Spacer(minLength: 16)
-                            Text(LibraryLook.when(item.createdAt)).font(Brand.suit(11)).foregroundStyle(Brand.tabText)
+                            Text(LibraryLook.when(actions.modified(.item(item)))).font(Brand.suit(11)).foregroundStyle(Brand.tabText)
                         }
                         HStack {
                             Text(info?.first ?? "").font(Brand.suit(11)).foregroundStyle(Brand.gray).lineLimit(1)

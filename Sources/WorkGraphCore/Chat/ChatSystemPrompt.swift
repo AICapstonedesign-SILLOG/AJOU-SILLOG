@@ -35,13 +35,13 @@ struct ChatSystemPrompt: Sendable {
         formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.timeZone = timeZone
         formatter.dateFormat = "yyyy-MM-dd HH:mm (EEEE)"
         // 타입을 적고 식을 나눠 둔다: 한 덩어리 사전 리터럴은 Swift 6.2 에서 타입 계산 시간 초과로 빌드가 멈춘다
-        let plugins = (scope.plugins + (scope.useGitHub ? ["github"] : [])).joined(separator: ", ")
+        let connectors = (scope.connectors + (scope.useGitHub ? ["github"] : [])).joined(separator: ", ")
         let raw: [String: String] = [
             "skill_instructions": skillInstructions,
             "project_title": project?.title ?? "", "project_goal": project?.goal ?? "",
             "project_memory_mode": project?.memoryMode.title ?? "", "project_instructions": project?.instructions ?? "",
             "use_activity": scope.useActivity ? "on" : "off", "connected_paths": scope.paths.joined(separator: ", "),
-            "use_web": scope.useWeb ? "on" : "off", "plugins": plugins,
+            "use_web": scope.useWeb ? "on" : "off", "connectors": connectors,
             "remembered_sources": rememberedSources, "focus_outline": focus ?? "",
             "current_time": formatter.string(from: now), "timezone": timeZone.identifier,
             "chat_model": chatModel, "run_mode": scheduled ? "scheduled" : "interactive", "agent_role": role ?? "main",

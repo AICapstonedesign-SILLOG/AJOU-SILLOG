@@ -122,9 +122,9 @@ final class CalendarScreenTests: XCTestCase {
     }
 
     func testGoogleSignInAsksOnlyForTheCalendarScopesItNeeds() {
-        XCTAssertEqual(PluginAuth.googleScopes(["gcal"]), ["https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+        XCTAssertEqual(ConnectorAuth.googleScopes(["gcal"]), ["https://www.googleapis.com/auth/calendar.calendarlist.readonly",
                                                            "https://www.googleapis.com/auth/calendar.events"])
-        XCTAssertEqual(PluginAuth.googleScopes(["gmail", "drive"]), ["https://www.googleapis.com/auth/drive.readonly",
+        XCTAssertEqual(ConnectorAuth.googleScopes(["gmail", "drive"]), ["https://www.googleapis.com/auth/drive.readonly",
                                                                      "https://www.googleapis.com/auth/gmail.readonly"])
     }
 

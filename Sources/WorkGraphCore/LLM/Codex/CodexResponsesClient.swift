@@ -35,6 +35,8 @@ public struct CodexUsage: Equatable, Sendable {
             self.usedPercent = usedPercent; self.windowSeconds = windowSeconds; self.resetAt = resetAt
         }
 
+        public var remainingPercent: Double { usedPercent.isFinite ? min(100, max(0, 100 - usedPercent)) : 0 }
+
         /// "5시간", "7일" 처럼 창 길이를 읽기 좋게.
         public var label: String {
             let hours = Double(windowSeconds) / 3600

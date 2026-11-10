@@ -37,7 +37,7 @@ struct ChatView: View {
     private var layout: some View {
         HStack(spacing: 0) {
             if sidebarVisible {
-                ChatSidebar(chat: chat, pane: $pane, isSearching: showSearch,
+                ChatSidebar(chat: chat, projects: chat.projects, pane: $pane, isSearching: showSearch,
                             onSearch: { showSearch = true },
                             onSchedules: { showSchedules = true },
                             onCollapse: { sidebarVisible = false },
@@ -89,6 +89,7 @@ struct ChatView: View {
 
     var body: some View {
         sheets
+        .onAppear { if state.showsChatResultsOnOpen { pane = .results } }
         .alert("이름 바꾸기", isPresented: $showRename) {
             TextField("대화 이름", text: $conversationName)
             Button("취소", role: .cancel) {}
@@ -116,10 +117,6 @@ struct ChatView: View {
             switch pane {
             case .chat:
                 chatContent
-            case .allConversations:
-                ChatAllConversationsView(chat: chat,
-                                         onOpen: { chat.select($0); pane = .chat },
-                                         onNew: { chat.newConversation(); pane = .chat })
             case .projects:
                 ProjectListView(projects: chat.projects, chat: chat,
                                 onOpen: { project in chat.newConversation(projectID: project.id); pane = .project(project.id) })
@@ -129,13 +126,13 @@ struct ChatView: View {
                                     onConversation: { chat.select($0); pane = .chat },
                                     composer: ChatComposer(chat: chat, library: library, modelName: modelName, openSettings: openSettings,
                                                            pendingRecords: pendingRecords, tidyNow: tidyNow,
-                                                           onOpenPlugins: { state.selectedTab = .plugins },
+                                                           onOpenConnectors: { state.selectedTab = .connectors },
                                                            onSent: { pane = .chat }, showsNotice: false))
                 } else {
                     Color.white.onAppear { pane = .projects }     // 삭제된 프로젝트
                 }
             case .results:
-                ChatResultsView(library: library)
+                LibraryView(library: library, initialKind: "", title: "결과물")
             }
         }.frame(maxWidth: .infinity, maxHeight: .infinity).background(.white)
     }
@@ -183,7 +180,7 @@ struct ChatView: View {
 
     private var composer: some View {
         ChatComposer(chat: chat, library: library, modelName: modelName, openSettings: openSettings,
-                     pendingRecords: pendingRecords, tidyNow: tidyNow, onOpenPlugins: { state.selectedTab = .plugins })
+                     pendingRecords: pendingRecords, tidyNow: tidyNow, onOpenConnectors: { state.selectedTab = .connectors })
             .frame(maxWidth: ChatPalette.columnWidth).frame(maxWidth: .infinity)     // 대화 본문과 같은 폭
             .padding(.horizontal, 32).padding(.top, 8).padding(.bottom, 14)
             .padding(.leading, showsQuestionMarks ? 44 : 0)     // 질문 눈금(44)만큼 밀린 대화 본문과 같은 열
@@ -205,7 +202,7 @@ struct ChatView: View {
                     .font(Brand.suit(24)).tracking(-0.48).foregroundStyle(Brand.ink).lineLimit(1)
                     .frame(maxWidth: .infinity)
                 ChatComposer(chat: chat, library: library, modelName: modelName, openSettings: openSettings,
-                             pendingRecords: pendingRecords, tidyNow: tidyNow, onOpenPlugins: { state.selectedTab = .plugins },
+                             pendingRecords: pendingRecords, tidyNow: tidyNow, onOpenConnectors: { state.selectedTab = .connectors },
                              showsNotice: false)
                     .overlay(alignment: .topTrailing) {             // Figma 1591:18788: 입력칸 오른쪽 위에 올라앉은 심볼
                         GazingMark(size: 72, smiling: !chat.draft.isEmpty).offset(x: -24, y: -63).allowsHitTesting(false)
@@ -227,7 +224,7 @@ struct ChatView: View {
                 }
             }.frame(width: ChatPalette.columnWidth)
             Spacer(minLength: 0)
-            Text("질문과 조회한 자료는 연결한 AI로 전송돼요. 웹 검색과 플러그인은 허용한 범위만 사용해요.")
+            Text("질문과 조회한 자료는 연결한 AI로 전송돼요. 웹 검색과 커넥터는 허용한 범위만 사용해요.")
                 .font(Brand.suit(9)).foregroundStyle(Brand.gray).lineLimit(1).padding(.bottom, 14)
         }.frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -243,10 +240,11 @@ struct ChatView: View {
                 }
             }
             if !chat.messages.isEmpty {
-                Text(chat.current.title).font(Brand.suit(14, .medium)).foregroundStyle(Brand.ink).lineLimit(1)
+                HoverScrollingText(text: chat.current.title).font(Brand.suit(14, .medium)).foregroundStyle(Brand.ink)
             }
             Spacer(minLength: 0)
-        }.padding(.top, sidebarVisible ? 20.5 : 20)   // 목록 "채팅" 제목과 글자 바닥선을 맞춘다.padding(.leading, sidebarVisible ? 28 : 21).padding(.trailing, 28)
+        }.padding(.top, sidebarVisible ? 20.5 : 20)   // 목록 "채팅" 제목과 글자 바닥선을 맞춘다
+            .padding(.leading, sidebarVisible ? 28 : 21).padding(.trailing, 28)
             .frame(height: 65, alignment: .topLeading)
     }
 
@@ -500,7 +498,7 @@ struct ChatView: View {
     /// Raises: 없음.
     private func automationApproval(_ message: ConversationMessage) -> some View {
         let scope = chat.current.scope
-        let plugins = (scope.plugins + (scope.useGitHub ? ["GitHub"] : [])).joined(separator: ", ")
+        let connectors = (scope.connectors + (scope.useGitHub ? ["GitHub"] : [])).joined(separator: ", ")
         return ChatDialogFrame(title: "예약 작업 등록", width: 600, height: 520, onClose: { pendingAutomation = nil }) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
@@ -512,7 +510,7 @@ struct ChatView: View {
                         VStack(alignment: .leading, spacing: 8) {
                             ChatInfoRow(label: "기록 범위", value: ChatFocusButton.label(scope, choices: chat.focusChoices))
                             ChatInfoRow(label: "웹 검색", value: scope.useWeb ? "허용" : "미허용")
-                            ChatInfoRow(label: "플러그인", value: plugins.isEmpty ? "없음" : plugins)
+                            ChatInfoRow(label: "커넥터", value: connectors.isEmpty ? "없음" : connectors)
                             if !scope.paths.isEmpty { ChatInfoRow(label: "연결한 파일", value: scope.paths.joined(separator: "\n")) }
                             ForEach(library.sources(conversationID: chat.current.id, projectID: chat.current.projectID)) { ChatInfoRow(label: "보관 자료", value: $0.title) }
                         }.padding(14).frame(maxWidth: .infinity, alignment: .leading)
@@ -738,7 +736,7 @@ private struct ChatSchedulesView: View {
                                 ChatInfoRow(label: "실행 간격", value: "\(job.intervalHours)시간마다")
                                 ChatInfoRow(label: "기록 범위", value: ChatFocusButton.label(job.scope, choices: chat.focusChoices))
                                 ChatInfoRow(label: "웹 검색", value: job.scope.useWeb ? "사용" : "사용 안 함")
-                                ChatInfoRow(label: "플러그인", value: (job.scope.plugins + (job.scope.useGitHub ? ["GitHub"] : [])).joined(separator: ", "))
+                                ChatInfoRow(label: "커넥터", value: (job.scope.connectors + (job.scope.useGitHub ? ["GitHub"] : [])).joined(separator: ", "))
                                 if !job.scope.paths.isEmpty { ChatInfoRow(label: "연결한 파일", value: job.scope.paths.joined(separator: "\n")) }
                                 ForEach(chat.library.items.filter { job.scope.libraryIDs.contains($0.id) }) { ChatInfoRow(label: "보관 자료", value: $0.title) }
                                 ChatInfoRow(label: "최근 상태", value: job.lastStatus)

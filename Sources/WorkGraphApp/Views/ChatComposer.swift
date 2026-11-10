@@ -9,7 +9,7 @@ struct ChatComposer: View {
     var openSettings: () -> Void
     var pendingRecords: Int = 0
     var tidyNow: () -> Void = {}
-    var onOpenPlugins: () -> Void = {}
+    var onOpenConnectors: () -> Void = {}
     var onSent: () -> Void = {}
     var showsNotice: Bool = true
 
@@ -17,9 +17,16 @@ struct ChatComposer: View {
     @State private var inputHeight: CGFloat = 38
     @State private var showPlus = false
     @State private var showFocus = false
-    @State private var showPlugins = false
+    @State private var showConnectors = false
     @State private var showConnect = false
+    @State private var showSkillPins = false
     @State private var showLibraryPicker = false
+    @State private var shortcut: ChatShortcut?
+    @State private var dismissedShortcut: ChatShortcut?
+    @State private var shortcutIndex = 0
+    @State private var shortcutMenuHeight: CGFloat = 0
+    @State private var shortcutCaret: NSRange?
+    @State private var connectedConnectors: Set<String> = []
 
     /// 이 대화에 응답이 도는 중이면 자료 설정을 잠근다
     private var busy: Bool { chat.activeMessage?.conversationID == chat.current.id }
@@ -37,17 +44,18 @@ struct ChatComposer: View {
                 tidyHint.padding(.top, 8).padding(.leading, 12)
             }
             if showsNotice {
-                Text("질문과 조회한 자료는 연결한 AI로 전송돼요. 웹 검색과 플러그인은 허용한 범위만 사용해요.")
+                Text("질문과 조회한 자료는 연결한 AI로 전송돼요. 웹 검색과 커넥터는 허용한 범위만 사용해요.")
                     .font(Brand.suit(9)).foregroundStyle(Brand.gray).lineLimit(1)
                     .frame(maxWidth: .infinity).padding(.top, 8)
             }
         }
         .frame(maxWidth: ChatPalette.columnWidth).frame(maxWidth: .infinity)
         .sheet(isPresented: $showLibraryPicker) { LibraryPicker(library: library) { chat.attachLibraryItem($0) } }
+        .onChange(of: chat.current.id) { _, _ in shortcut = nil; dismissedShortcut = nil }
     }
 
     /// 보내기가 시작됐을 때만 알린다 (프로젝트 상세에서 대화로 넘어가는 용도)
-    private func send() { if chat.send() { onSent() } }
+    private func send() { if chat.send() { shortcut = nil; onSent() } }
 
     static func placeholder(_ scope: ChatScope) -> String {
         guard scope.useActivity, !scope.focus.isEmpty else { return "기록을 바탕으로 무엇을 할까요?" }
@@ -79,7 +87,8 @@ struct ChatComposer: View {
                         .font(Brand.suit(12)).foregroundStyle(Brand.text.opacity(0.5)).lineLimit(1)
                         .padding(.top, 8).padding(.leading, 5).allowsHitTesting(false)
                 }
-                ChatInput(text: $chat.draft, height: $inputHeight, minimumHeight: 38, focusRequest: chat.inputFocusRequest, onSend: send)
+                ChatInput(text: $chat.draft, height: $inputHeight, minimumHeight: 38, focusRequest: chat.inputFocusRequest,
+                          selectionOnFocus: shortcutCaret, onShortcut: updateShortcut, shortcutKey: handleShortcutKey, onSend: send)
                     .frame(height: inputHeight)
             }
             .padding(.top, 18).padding(.horizontal, 13)
@@ -96,6 +105,124 @@ struct ChatComposer: View {
         .fixedSize(horizontal: false, vertical: true)   // 남는 세로 공간을 차지하지 않게: 글이 늘 때만 커진다 (Figma 96)
         .background(.white, in: RoundedRectangle(cornerRadius: 14))
         .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(ChatPalette.inputLine))
+        .overlay(alignment: .topLeading) {
+            if shortcut != nil && !busy {
+                shortcutMenu
+                    .fixedSize(horizontal: true, vertical: true)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { shortcutMenuHeight = $0 }
+                    .offset(x: 12, y: -shortcutMenuHeight - 5)
+            }
+        }.zIndex(shortcut == nil ? 0 : 1)
+    }
+
+    private struct ShortcutChoice: Identifiable {
+        let id: String
+        let name: String
+        let icon: String
+        var connected = true
+    }
+
+    private var shortcutChoices: [ShortcutChoice] {
+        guard let shortcut else { return [] }
+        let choices: [ShortcutChoice]
+        switch shortcut.kind {
+        case .skill: choices = chat.skills.map { .init(id: $0.id, name: $0.title, icon: $0.icon) }
+        case .connector: choices = ConnectorEntry.all.map {
+            .init(id: $0.id, name: $0.name, icon: $0.icon, connected: connectedConnectors.contains($0.id))
+        }
+        }
+        let matching = choices.filter {
+            shortcut.query.isEmpty || $0.name.localizedCaseInsensitiveContains(shortcut.query) || $0.id.localizedCaseInsensitiveContains(shortcut.query)
+        }
+        return matching.filter(\.connected) + matching.filter { !$0.connected }
+    }
+
+    private func updateShortcut(_ value: ChatShortcut?) {
+        guard value != shortcut else { return }
+        if value != dismissedShortcut { dismissedShortcut = nil }
+        guard value != dismissedShortcut || value == nil else { return }
+        if value?.kind == .connector && shortcut?.kind != .connector {
+            connectedConnectors = Set(ConnectorEntry.all.compactMap { entry in
+                (try? ConnectorAuth.isConnected(entry.id)) == true ? entry.id : nil
+            })
+        }
+        shortcutCaret = nil
+        shortcut = value; shortcutIndex = 0
+    }
+
+    private func handleShortcutKey(_ key: UInt16) -> Bool {
+        guard let shortcut, !busy else { return false }
+        let choices = shortcutChoices
+        switch key {
+        case 53:
+            dismissedShortcut = shortcut; self.shortcut = nil
+        case 125, 126:
+            guard !choices.isEmpty else { return false }
+            let step = key == 125 ? 1 : -1
+            shortcutIndex = (shortcutIndex + step + choices.count) % choices.count
+        case 36, 48, 76:
+            guard choices.indices.contains(shortcutIndex) else { return key != 48 }
+            chooseShortcut(choices[shortcutIndex])
+        default: return false
+        }
+        return true
+    }
+
+    private func chooseShortcut(_ item: ShortcutChoice) {
+        guard let shortcut, NSMaxRange(shortcut.range) <= (chat.draft as NSString).length else { return }
+        switch shortcut.kind {
+        case .skill: chat.selectSkill(item.id)
+        case .connector:
+            guard item.connected else { self.shortcut = nil; onOpenConnectors(); return }
+            if !chat.draftConnectors.contains(item.id) { chat.draftConnectors.append(item.id) }
+        }
+        chat.draft = (chat.draft as NSString).replacingCharacters(in: shortcut.range, with: "")
+        shortcutCaret = NSRange(location: shortcut.range.location, length: 0)
+        self.shortcut = nil
+        chat.inputFocusRequest += 1
+    }
+
+    private var shortcutMenu: some View {
+        let choices = shortcutChoices
+        return VStack(alignment: .leading, spacing: 2) {
+            Text(shortcut?.kind == .skill ? "스킬 선택" : "이번 요청의 커넥터")
+                .font(Brand.suit(10)).foregroundStyle(Brand.gray).padding(.horizontal, 8).padding(.vertical, 4)
+            if !choices.isEmpty {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(spacing: 2) {
+                            ForEach(Array(choices.enumerated()), id: \.element.id) { index, item in
+                                Button { chooseShortcut(item) } label: {
+                                    HStack(spacing: 8) {
+                                        if shortcut?.kind == .connector, let connector = ConnectorEntry.all.first(where: { $0.id == item.id }) {
+                                            ConnectorLogo(connector: connector, size: 14, boxed: false)
+                                        } else {
+                                            Image(systemName: item.icon).font(.system(size: 12))
+                                                .frame(width: 14, height: 14).accessibilityHidden(true)
+                                        }
+                                        Text(item.name).font(Brand.suit(11)).lineLimit(1)
+                                        Spacer(minLength: 4)
+                                        if !item.connected { Text("연결 필요").font(Brand.suit(9)).foregroundStyle(Brand.gray) }
+                                    }
+                                    .padding(.horizontal, 8).frame(height: 26)
+                                    .background(index == shortcutIndex ? Brand.chipSelectedFill : .clear, in: RoundedRectangle(cornerRadius: 5))
+                                    .contentShape(Rectangle())
+                                }.buttonStyle(.plain).id(item.id)
+                            }
+                        }
+                    }.frame(height: CGFloat(min(choices.count, 7)) * 28 - 2)
+                    .onChange(of: shortcutIndex) { _, index in
+                        if choices.indices.contains(index) { proxy.scrollTo(choices[index].id) }
+                    }
+                }
+            } else {
+                Text("일치하는 항목이 없어요").font(Brand.suit(11)).foregroundStyle(Brand.gray).padding(8)
+            }
+        }
+        .padding(6).frame(width: 210)
+        .background(.white, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Brand.line))
+        .shadow(color: .black.opacity(0.10), radius: 10, y: 3)
     }
 
     private var plusButton: some View {
@@ -161,6 +288,12 @@ struct ChatComposer: View {
     private var chips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
+                // 고정 목록에서 뺀 스킬도 현재 대화에 적용 중이면 해제할 수 있게 남긴다.
+                ForEach(chat.skills.filter { chat.current.skillIDs.contains($0.id) && !chat.pinnedSkillIDs.contains($0.id) }) { skill in
+                    chip(icon: skill.icon, text: skill.title, help: "적용 중인 스킬") {
+                        chat.current.skillIDs.removeAll { $0 == skill.id }
+                    }
+                }
                 if !chat.current.scope.useActivity {
                     chip(icon: "diamond", text: "기록 안 씀", help: "참고할 기록 메뉴에서 범위를 바꿀 수 있어요")
                 } else if !chat.current.scope.focus.isEmpty {
@@ -170,6 +303,12 @@ struct ChatComposer: View {
                 }
                 if chat.current.scope.useWeb {
                     chip(icon: "globe", text: "웹 검색", help: "웹 검색 끄기") { chat.current.scope.useWeb = false }
+                }
+                ForEach(chat.draftConnectors, id: \.self) { id in
+                    let name = ConnectorEntry.all.first { $0.id == id }?.name ?? id
+                    chip(icon: "puzzlepiece.extension", text: name, help: "이번 요청의 참고 자료") {
+                        chat.draftConnectors.removeAll { $0 == id }
+                    }
                 }
                 if library.busy {
                     ProgressView().controlSize(.small)
@@ -185,7 +324,7 @@ struct ChatComposer: View {
     private var plusMenu: some View {
         VStack(alignment: .leading, spacing: 0) {
             MenuRow(icon: "square.and.arrow.up", title: "파일 업로드") { showPlus = false; chat.uploadFiles() }
-            MenuRow(icon: "archivebox", title: "보관함에서 선택") { showPlus = false; DispatchQueue.main.async { showLibraryPicker = true } }
+            MenuRow(icon: "archivebox", title: "결과물에서 선택") { showPlus = false; DispatchQueue.main.async { showLibraryPicker = true } }
             MenuRow(icon: "folder.badge.plus", title: "원본 파일과 폴더 연결") { showPlus = false; chat.connectFiles() }
             Rectangle().fill(Brand.line).frame(height: 1).padding(.vertical, 4)
             MenuRow(icon: "diamond", title: "참고할 기록") { showPlus = false; DispatchQueue.main.async { showFocus = true } } trailing: {
@@ -194,28 +333,31 @@ struct ChatComposer: View {
             MenuRow(icon: "globe", title: "웹 검색") { chat.current.scope.useWeb.toggle() } trailing: {
                 WebSwitch(on: chat.current.scope.useWeb)
             }
-            MenuRow(icon: "puzzlepiece.extension", title: "플러그인") { showPlugins = true } trailing: {
+            MenuRow(icon: "puzzlepiece.extension", title: "커넥터") { showConnectors = true } trailing: {
                 Image(systemName: "chevron.right").font(.system(size: 9)).foregroundStyle(Brand.gray)
             }
-            .popover(isPresented: $showPlugins, arrowEdge: .trailing) { pluginMenu }
+            .popover(isPresented: $showConnectors, arrowEdge: .trailing) { connectorMenu }
         }
         .padding(6).frame(width: 190)
     }
 
-    /// CH-31, CH-71: 플러그인 스위치 넷과 둘러보기
-    private var pluginMenu: some View {
+    /// CH-31, CH-71: 커넥터 선택과 둘러보기
+    private var connectorMenu: some View {
         VStack(alignment: .leading, spacing: 0) {
-            pluginRow("Gmail", "envelope", pluginBinding("gmail"))
-            pluginRow("Google Drive", "externaldrive", pluginBinding("drive"))
-            pluginRow("GitHub", "chevron.left.forwardslash.chevron.right", githubBinding())
-            pluginRow("Notion", "doc.text", pluginBinding("notion"))
+            ScrollView {
+                VStack(spacing: 0) {
+                    ForEach(ConnectorEntry.all) { connector in
+                        connectorRow(connector.name, connector.icon, connector.id == "github" ? githubBinding() : connectorBinding(connector.id))
+                    }
+                }
+            }.frame(height: 260)
             Rectangle().fill(Brand.line).frame(height: 1).padding(.vertical, 4)
-            MenuRow(icon: "square.grid.2x2", title: "플러그인 둘러보기") { showPlugins = false; showPlus = false; onOpenPlugins() }
+            MenuRow(icon: "square.grid.2x2", title: "커넥터 둘러보기") { showConnectors = false; showPlus = false; onOpenConnectors() }
         }
         .padding(6).frame(width: 190)
     }
 
-    private func pluginRow(_ title: String, _ icon: String, _ on: Binding<Bool>) -> some View {
+    private func connectorRow(_ title: String, _ icon: String, _ on: Binding<Bool>) -> some View {
         MenuRow(icon: icon, title: title) { on.wrappedValue.toggle() } trailing: { WebSwitch(on: on.wrappedValue) }
     }
 
@@ -224,7 +366,7 @@ struct ChatComposer: View {
     private var skillChips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
-                ForEach(chat.skills) { skill in
+                ForEach(chat.pinnedSkills) { skill in
                     let on = chat.current.skillIDs.contains(skill.id)
                     Button {
                         if on { chat.current.skillIDs.removeAll { $0 == skill.id } } else { chat.current.skillIDs.append(skill.id) }
@@ -238,6 +380,18 @@ struct ChatComposer: View {
                     }
                     .buttonStyle(.plain).disabled(busy).accessibilityLabel("\(skill.title) \(on ? "끄기" : "켜기")")
                 }
+                Button { showSkillPins = true } label: {
+                    Image(systemName: "pencil").font(.system(size: 10, weight: .medium))
+                        .frame(width: 22, height: 22).background(ChatPalette.soft, in: Circle())
+                }
+                .buttonStyle(.plain).disabled(busy).help("표시할 스킬 편집").accessibilityLabel("표시할 스킬 편집")
+                .popover(isPresented: $showSkillPins, arrowEdge: .top) {
+                    PinnedSkillPicker(chat: chat) {
+                        showSkillPins = false
+                        state.customizeSection = .skills
+                        state.selectedTab = .connectors
+                    }
+                }
             }
         }
         .frame(height: 22)
@@ -248,10 +402,6 @@ struct ChatComposer: View {
     private var connectHost: String { URL(string: state.settings.chatEndpoint.url)?.host?.lowercased() ?? "" }
     private var connectLabel: String {
         let provider = state.settings.effectiveChatProvider
-        if provider == "codex" {
-            if case .loggedIn(_, let plan, _) = state.codexStatus, let plan, !plan.isEmpty { return "ChatGPT \(plan.prefix(1).uppercased() + plan.dropFirst())" }
-            return "ChatGPT"
-        }
         if provider == "ajou" { return "아주대 LLM API" }
         return connectHost.contains("anthropic") ? "Claude API" : "API"
     }
@@ -268,7 +418,19 @@ struct ChatComposer: View {
         }
     }
 
-    private var connectionButton: some View {
+    @ViewBuilder private var connectionButton: some View {
+        if state.settings.effectiveChatProvider == "codex" {
+            HStack(spacing: 6) {
+                providerLogo("codex").frame(width: 13, height: 13).accessibilityLabel("ChatGPT")
+                Rectangle().fill(Brand.line).frame(width: 1, height: 10)
+                ChatModelMenu(name: modelName, fontSize: 11, openSettings: openSettings)
+            }.fixedSize()
+        } else {
+            providerMenuButton
+        }
+    }
+
+    private var providerMenuButton: some View {
         Button { showConnect = true } label: {
             HStack(spacing: 6) {
                 providerLogo(state.settings.effectiveChatProvider, claude: connectHost.contains("anthropic")).frame(width: 13, height: 13)
@@ -355,24 +517,24 @@ struct ChatComposer: View {
         .font(Brand.suit(10)).foregroundStyle(Brand.gray)
     }
 
-    /// Args: id는 대화에서 켜거나 끌 플러그인이다.
-    /// Returns: 대화별 플러그인 선택 바인딩. 연결 안 된 플러그인을 켜면 플러그인 화면으로 간다.
+    /// Args: id는 대화에서 켜거나 끌 커넥터이다.
+    /// Returns: 대화별 커넥터 선택 바인딩. 연결 안 된 커넥터를 켜면 커넥터 화면으로 간다.
     /// Raises: 없음.
-    private func pluginBinding(_ id: String) -> Binding<Bool> {
-        Binding(get: { chat.current.scope.plugins.contains(id) }, set: { enabled in
+    private func connectorBinding(_ id: String) -> Binding<Bool> {
+        Binding(get: { chat.current.scope.connectors.contains(id) }, set: { enabled in
             if enabled {
-                guard (try? PluginAuth.isConnected(id)) == true else { showPlugins = false; showPlus = false; onOpenPlugins(); return }
-                if !chat.current.scope.plugins.contains(id) { chat.current.scope.plugins.append(id) }
-            } else { chat.current.scope.plugins.removeAll { $0 == id } }
+                guard (try? ConnectorAuth.isConnected(id)) == true else { showConnectors = false; showPlus = false; onOpenConnectors(); return }
+                if !chat.current.scope.connectors.contains(id) { chat.current.scope.connectors.append(id) }
+            } else { chat.current.scope.connectors.removeAll { $0 == id } }
         })
     }
 
     /// Args: 없음.
     /// Returns: GitHub 연결 상태를 확인한 뒤 변경하는 대화별 자료 바인딩.
-    /// Raises: 없음. 미연결 상태에서는 플러그인 화면으로 간다.
+    /// Raises: 없음. 미연결 상태에서는 커넥터 화면으로 간다.
     private func githubBinding() -> Binding<Bool> {
         Binding(get: { chat.current.scope.useGitHub }, set: { enabled in
-            if enabled && (try? PluginAuth.isConnected("github")) != true { showPlugins = false; showPlus = false; onOpenPlugins(); return }
+            if enabled && (try? ConnectorAuth.isConnected("github")) != true { showConnectors = false; showPlus = false; onOpenConnectors(); return }
             chat.current.scope.useGitHub = enabled
         })
     }
