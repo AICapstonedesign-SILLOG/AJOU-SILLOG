@@ -1,5 +1,5 @@
 #!/bin/bash
-# release 빌드 → 코드 서명 → ~/Applications/Sillog.app 설치.
+# release 빌드 → 코드 서명 → ~/Applications/AJOU-SILLOG.app 설치 (학교용, 번들 ID com.capstone.workgraph).
 # 서명 인증서를 고정해 두면 다시 빌드해도 macOS 권한(손쉬운 사용·화면 기록)이 유지된다.
 #   SIGN_IDENTITY="Apple Development: ..." scripts/make-app.sh   # 인증서 지정
 #   SIGN_IDENTITY=- scripts/make-app.sh                          # ad-hoc (빌드할 때마다 권한을 다시 줘야 함)
@@ -7,9 +7,10 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+if [ -f .env ]; then set -a; . ./.env; set +a; fi
 
 # Documents의 동기화 파일 때문에 SwiftPM 의존성 체크아웃이 멈추지 않도록 임시 빌드 경로를 쓴다.
-BUILD_DIR="${WORKGRAPH_BUILD_DIR:-${TMPDIR:-/tmp}/Sillog-swift-build}"
+BUILD_DIR="${SILLOG_BUILD_DIR:-${WORKGRAPH_BUILD_DIR:-${TMPDIR:-/tmp}/Sillog-swift-build}}"
 mkdir -p "$BUILD_DIR/cache" "$BUILD_DIR/config" "$BUILD_DIR/security" "$BUILD_DIR/clang-cache"
 export CLANG_MODULE_CACHE_PATH="${CLANG_MODULE_CACHE_PATH:-$BUILD_DIR/clang-cache}"
 # 동기화 중인 Documents 원본의 메타데이터가 컴파일 도중 바뀌지 않도록 소스를 임시 경로에 고정한다.
@@ -18,24 +19,24 @@ mkdir -p "$STAGE_DIR/Sources" "$STAGE_DIR/Tests"
 rsync -a --delete "$ROOT/Sources/" "$STAGE_DIR/Sources/"
 rsync -a --delete "$ROOT/Tests/" "$STAGE_DIR/Tests/"
 cp "$ROOT/Package.swift" "$ROOT/Package.resolved" "$STAGE_DIR/"
-swift build --package-path "$STAGE_DIR" -c release --product WorkGraphApp --scratch-path "$BUILD_DIR" --cache-path "$BUILD_DIR/cache" --config-path "$BUILD_DIR/config" --security-path "$BUILD_DIR/security" --disable-sandbox -j 2
+swift build --package-path "$STAGE_DIR" -c release --product SillogApp --scratch-path "$BUILD_DIR" --cache-path "$BUILD_DIR/cache" --config-path "$BUILD_DIR/config" --security-path "$BUILD_DIR/security" --disable-sandbox -j 2
 BIN_DIR="$(swift build --package-path "$STAGE_DIR" -c release --show-bin-path --scratch-path "$BUILD_DIR" --cache-path "$BUILD_DIR/cache" --config-path "$BUILD_DIR/config" --security-path "$BUILD_DIR/security" --disable-sandbox)"
 APP="$BUILD_DIR/Sillog.app"
-APP_LINK="$ROOT/build/Sillog.app"
-INSTALLED_APP="$HOME/Applications/Sillog.app"
+APP_LINK="$ROOT/build/AJOU-SILLOG.app"
+INSTALLED_APP="$HOME/Applications/AJOU-SILLOG.app"
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp "$BIN_DIR/WorkGraphApp" "$APP/Contents/MacOS/Sillog"
-cp -R "$ROOT/Sources/WorkGraphApp/Resources/graph" "$APP/Contents/Resources/graph"
-cp -R "$ROOT/Sources/WorkGraphApp/Resources/calendar" "$APP/Contents/Resources/calendar"   # 캘린더 화면 (FullCalendar 6, MIT)
-cp -R "$ROOT/Sources/WorkGraphApp/Resources/ConnectorIcons" "$APP/Contents/Resources/ConnectorIcons"
-cp -R "$ROOT/Sources/WorkGraphApp/Resources/Brand" "$APP/Contents/Resources/Brand"
-cp -R "$BIN_DIR/WorkGraph_WorkGraphCore.bundle" "$APP/Contents/Resources/"
+cp "$BIN_DIR/SillogApp" "$APP/Contents/MacOS/Sillog"
+cp -R "$ROOT/Sources/SillogApp/Resources/graph" "$APP/Contents/Resources/graph"
+cp -R "$ROOT/Sources/SillogApp/Resources/calendar" "$APP/Contents/Resources/calendar"   # 캘린더 화면 (FullCalendar 6, MIT)
+cp -R "$ROOT/Sources/SillogApp/Resources/ConnectorIcons" "$APP/Contents/Resources/ConnectorIcons"
+cp -R "$ROOT/Sources/SillogApp/Resources/Brand" "$APP/Contents/Resources/Brand"
+cp -R "$BIN_DIR/Sillog_SillogCore.bundle" "$APP/Contents/Resources/"
 cp -R "$BIN_DIR/SwiftMath_SwiftMath.bundle" "$APP/Contents/Resources/"    # 채팅 수식 글꼴 (없으면 수식을 그릴 때 앱이 멈춘다)
 chmod -R u+w "$APP/Contents/Resources/SwiftMath_SwiftMath.bundle"                    # 패키지 체크아웃에서 읽기 전용으로 오므로 서명 전 xattr 정리가 되게
-[ -f "$ROOT/Sources/WorkGraphApp/Resources/AppIcon.icns" ] || swift "$ROOT/scripts/make-icon.swift" "$ROOT/Sources/WorkGraphApp/Resources/AppIcon.icns"
-cp "$ROOT/Sources/WorkGraphApp/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
+[ -f "$ROOT/Sources/SillogApp/Resources/AppIcon.icns" ] || swift "$ROOT/scripts/make-icon.swift" "$ROOT/Sources/SillogApp/Resources/AppIcon.icns"
+cp "$ROOT/Sources/SillogApp/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -43,8 +44,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <plist version="1.0">
 <dict>
   <key>CFBundleIdentifier</key><string>com.capstone.workgraph</string>
-  <key>CFBundleName</key><string>Sillog</string>
-  <key>CFBundleDisplayName</key><string>Sillog</string>
+  <key>CFBundleName</key><string>SILLOG</string>
+  <key>CFBundleDisplayName</key><string>SILLOG</string>
   <key>CFBundleExecutable</key><string>Sillog</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>0.1.0</string>
@@ -61,7 +62,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>NSDownloadsFolderUsageDescription</key><string>새로 내려받은 파일을 하던 업무와 연결해 기록합니다.</string>
   <key>NSMicrophoneUsageDescription</key><string>메뉴 막대에서 녹음할 때 마이크 소리를 녹음합니다.</string>
   <key>NSSpeechRecognitionUsageDescription</key><string>녹음한 말을 이 Mac 안에서 글로 받아씁니다.</string>
-  <key>NSDocumentsFolderUsageDescription</key><string>받아쓴 녹음을 문서 폴더의 'Sillog 녹음'에 저장합니다.</string>
+  <key>NSDocumentsFolderUsageDescription</key><string>받아쓴 녹음을 문서 폴더의 'SILLOG 녹음'에 저장합니다.</string>
   <key>NSCalendarsFullAccessUsageDescription</key><string>오늘 일정을 메뉴 막대에 보여 주고, 기록에서 찾은 일정을 확인한 뒤 캘린더에 등록합니다.</string>
   <key>NSCalendarsUsageDescription</key><string>오늘 일정을 메뉴 막대에 보여 주고, 기록에서 찾은 일정을 확인한 뒤 캘린더에 등록합니다.</string>
   <key>NSAppTransportSecurity</key>
@@ -73,11 +74,12 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
-# 공식 배포의 공개 클라이언트 설정을 기본으로 쓰고, 별도 배포자는 환경 변수로 바꿀 수 있다.
-# 구글 설치형 클라이언트 시크릿은 공개 클라이언트 정보이며, 사용자 토큰·서버 비밀키는 넣지 않는다.
+# OAuth client settings: env (SILLOG_* or legacy WORKGRAPH_*), then Config/OAuthClients.plist.
 OAUTH_CONFIG="$ROOT/Config/OAuthClients.plist"
-for key in WORKGRAPH_GOOGLE_CLIENT_ID WORKGRAPH_GOOGLE_CLIENT_SECRET WORKGRAPH_GITHUB_CLIENT_ID WORKGRAPH_NOTION_CLIENT_ID WORKGRAPH_SLACK_CLIENT_ID; do
-  oauth_value="${!key:-}"
+for name in GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GITHUB_CLIENT_ID NOTION_CLIENT_ID SLACK_CLIENT_ID; do
+  key="SILLOG_$name"
+  legacy="WORKGRAPH_$name"
+  oauth_value="${!key:-${!legacy:-}}"
   if [ -z "$oauth_value" ] && [ -f "$OAUTH_CONFIG" ]; then
     if ! oauth_value="$(plutil -extract "$key" raw -o - "$OAUTH_CONFIG" 2>/dev/null)"; then oauth_value=""; fi
   fi
@@ -89,11 +91,11 @@ done
 # File Provider의 Finder 메타데이터가 서명을 깨므로 번들에서 제거한다.
 xattr -cr "$APP"
 
-# 서명: 지정값 → "Capstone Prototype Dev" → "Apple Development" → ad-hoc 순으로 고른다.
+# 서명: 지정값 → "Apple Development" → ad-hoc 순으로 고른다.
 IDENTITY="${SIGN_IDENTITY:-}"
 if [ -z "$IDENTITY" ]; then
   AVAILABLE="$(security find-identity -v -p codesigning 2>/dev/null || true)"
-  for candidate in "Capstone Prototype Dev" "Apple Development"; do
+  for candidate in "Apple Development"; do
     if echo "$AVAILABLE" | grep -q "\"$candidate"; then
       IDENTITY="$(echo "$AVAILABLE" | grep "\"$candidate" | head -1 | sed -E 's/.*"(.*)".*/\1/')"
       break
