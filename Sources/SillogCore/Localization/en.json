@@ -1,4 +1,10 @@
 {
+  "아주대 LLM API": "Ajou LLM API",
+  "아주대 학생용 LLM": "Ajou University LLM for students",
+  "아주대 LLM API 키": "Ajou LLM API key",
+  "아주대 LLM 사이트에서 키를 만들어요": "Create a key on the Ajou LLM site",
+  "아주대 LLM에서 받은 키를 붙여 넣어요": "Paste the key from Ajou LLM",
+  "아주대 LLM API 키를 설정해 주세요.": "Set the Ajou LLM API key.",
   "\n\n응답을 완료하지 못했습니다: %@": "\n\nCouldn't finish the response: %@",
   " %@ 넘어옴": " %@ carried over",
   " · 판단 대기 %@행": " · %@ rows awaiting judgment",

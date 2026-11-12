@@ -323,6 +323,8 @@ struct ProviderLogo: View {
             if let mark = Brand.openAIMark { Image(nsImage: mark).renderingMode(.template).resizable().scaledToFit().foregroundStyle(Color(hex: 0x4A3E37)) }
         case "jev":
             if let logo = Brand.jevLogo { Image(nsImage: logo).resizable().interpolation(.high).scaledToFit().clipShape(Circle()) }
+        case "ajou":
+            if let logo = Brand.ajouEmblem { Image(nsImage: logo).resizable().interpolation(.high).scaledToFit().clipShape(Circle()) }
         default:
             Image(systemName: "server.rack").resizable().scaledToFit().foregroundStyle(Brand.tabText)
         }
@@ -383,7 +385,8 @@ private struct ConnectionSection: View {
     @FocusState private var focusedKey: AppSettings.JudgeChoice?
 
     /// The connection whose address or key fields are open under the tiles.
-    private enum Panel { case api, jev, decisions }
+    private enum Panel { case api, jev, decisions, ajou }
+    @State private var ajouModels: [String] = []
 
     /// The model row whose API pill opened the API fields; the fields sit right under it.
     private enum Role { case organize, chat, judge }
@@ -405,6 +408,7 @@ private struct ConnectionSection: View {
     }
 
     private var judge: AppSettings.JudgeChoice { state.settings.judgeChoice }
+    private var usesAjou: Bool { state.settings.llmProvider == "ajou" || state.settings.chatProvider == "ajou" || judge == .ajou }
     private var usesAPI: Bool { state.settings.llmProvider == "openai" || state.settings.chatProvider == "openai" || judge == .api }
 
     private func chatUses(_ provider: String) -> Bool { state.settings.effectiveChatProvider == provider }
@@ -431,6 +435,10 @@ private struct ConnectionSection: View {
                 codexTile
                 codexExtras
                 // Connections appear only while a model row uses them; each one's fields and check sit right under it.
+                if usesAjou {
+                    connectionTile(tr("아주대 LLM API"), detail: tr("아주대 학생용 LLM"), logo: "ajou", ready: !state.settings.ajouAPIKey.isEmpty, open: .ajou, closed: tr("키 입력"))
+                    if panel == .ajou { ajouKeyRow }
+                }
                 if usesAPI { connectionTile(tr("API 서버"), detail: tr("OpenAI 호환 서버"), logo: "openai", ready: false, open: .api, closed: tr("설정")) }
                 if judge == .jev {
                     connectionTile("Jev", detail: tr("판단 모델 전용"), logo: "jev", ready: !state.settings.jevAPIKey.isEmpty, open: .jev, closed: tr("키 입력"))
@@ -457,6 +465,7 @@ private struct ConnectionSection: View {
         // Picking a connection that still needs an address or key opens its fields.
         .onChange(of: state.settings.judgeChoice) { _, choice in
             if choice == .api { apiUnder = .judge; panel = .api }
+            if choice == .ajou, state.settings.ajouAPIKey.isEmpty { panel = .ajou }
             if choice == .jev, state.settings.jevAPIKey.isEmpty { panel = .jev }
             if choice == .decisions, state.settings.decisionsAPIKey.isEmpty { panel = .decisions }
         }
@@ -466,6 +475,7 @@ private struct ConnectionSection: View {
             // The row that opened the fields left API: move them to a row still on it.
             else if apiUnder == .organize, used[0] != "openai", used[1] == "openai" { apiUnder = .chat }
             else if apiUnder == .chat, used[1] != "openai", used[0] == "openai" { apiUnder = .organize }
+            if used.contains("ajou"), !old.contains("ajou"), state.settings.ajouAPIKey.isEmpty { panel = .ajou }
             if used.contains("openai") { panel = .api }
             else if panel == .api, state.settings.judgeChoice != .api { panel = nil }
         }
@@ -473,6 +483,9 @@ private struct ConnectionSection: View {
             let s = state.settings
             let used = s.llmProvider == "openai" || s.chatProvider == "openai" || s.judgeChoice == .api
             apiModels = await availableAPIModels(enabled: used, address: s.llmBaseURL, key: s.llmAPIKey)
+        }
+        .task(id: [String(usesAjou), state.settings.ajouAPIKey]) {
+            ajouModels = await availableAPIModels(enabled: usesAjou, address: AppSettings.ajouBaseURL, key: state.settings.ajouAPIKey)
         }
         .task(id: [state.settings.judgeChoice.rawValue, state.settings.judgeBaseURL, state.settings.judgeAPIKey]) {
             let settings = state.settings
@@ -624,7 +637,19 @@ private struct ConnectionSection: View {
 
     // MARK: 모델
 
-    private static let connections = [("codex", tr("ChatGPT 구독")), ("openai", tr("API 서버"))]
+    private static let connections = [("codex", tr("ChatGPT 구독")), ("ajou", tr("아주대 LLM API")), ("openai", tr("API 서버"))]
+
+    private var ajouKeyRow: some View {
+        tallRow(tr("아주대 LLM API 키"), slot: 36, top: 16, bottom: 7, column: nil) {
+            VStack(alignment: .trailing, spacing: 8) {
+                HStack(spacing: 12) {
+                    keyLink(AppSettings.ajouSite, help: tr("아주대 LLM 사이트에서 키를 만들어요"))
+                    BrandInput(text: $state.settings.ajouAPIKey, placeholder: tr("아주대 LLM에서 받은 키를 붙여 넣어요"), width: 460, secure: true)
+                }
+                if !state.settings.ajouAPIKey.isEmpty { SettingCheckStatus(result: check("ajou"), action: { runCheck("ajou") }) }
+            }
+        }
+    }
 
     /// One role: what it does on the left, its connection and then its model on the right.
     private func modelRow<Content: View>(_ title: String, _ detail: String, @ViewBuilder _ content: @escaping () -> Content) -> some View {
@@ -634,24 +659,26 @@ private struct ConnectionSection: View {
     private var organizeRow: some View {
         modelRow(tr("정리 모델"), tr("업무에 이름과 요약을 붙여요")) {
             PillPicker(selection: $state.settings.llmProvider, options: Self.connections, logos: true)
-            modelList(state.settings.llmProvider, codex: $state.settings.codexModel, openAI: $state.settings.llmModel, codexModels: state.codexModels)
+            modelList(state.settings.llmProvider, codex: $state.settings.codexModel, openAI: $state.settings.llmModel, ajou: $state.settings.ajouModel,
+                      codexModels: state.codexModels)
         }
     }
 
     private var chatRow: some View {
         modelRow(tr("채팅 모델"), tr("채팅에서 질문에 답해요")) {
             PillPicker(selection: $state.settings.chatProvider, options: Self.connections, logos: true)
-            modelList(state.settings.chatProvider, codex: $state.settings.chatCodexModel, openAI: $state.settings.chatModel,
+            modelList(state.settings.chatProvider, codex: $state.settings.chatCodexModel, openAI: $state.settings.chatModel, ajou: $state.settings.chatAjouModel,
                       codexModels: state.chatCodexModels.isEmpty ? state.codexModels : state.chatCodexModels)
         }
     }
 
     private var judgeRow: some View {
         modelRow(tr("판단 모델"), tr("기록이 어느 업무인지 골라요")) {
-            PillPicker(selection: judgeChoice, options: [("codex", tr("ChatGPT 구독")), ("decisions", "OpenAI Decisions"),
+            PillPicker(selection: judgeChoice, options: [("codex", tr("ChatGPT 구독")), ("ajou", tr("아주대 LLM API")), ("decisions", "OpenAI Decisions"),
                                                           ("jev", "Jev"), ("api", tr("API 서버"))], logos: true)
             switch state.settings.judgeChoice {
             case .codex: codexModelField($state.settings.judgeCodexModel, state.codexModels)
+            case .ajou: ModelDropdown(selection: $state.settings.judgeAjouModel, models: ajouModels.map { ($0, $0) }, directEntry: true)
             case .api: ModelDropdown(selection: $state.settings.judgeAPIModel, models: apiModels.map { ($0, $0) }, directEntry: true)
             case .customAPI:
                 VStack(alignment: .leading, spacing: 8) {
@@ -717,8 +744,10 @@ private struct ConnectionSection: View {
     }
 
     /// Model menu for a role on the given connection.
-    @ViewBuilder private func modelList(_ provider: String, codex: Binding<String>, openAI: Binding<String>, codexModels: [CodexModel]) -> some View {
+    @ViewBuilder private func modelList(_ provider: String, codex: Binding<String>, openAI: Binding<String>, ajou: Binding<String>,
+                                        codexModels: [CodexModel]) -> some View {
         switch provider {
+        case "ajou": ModelDropdown(selection: ajou, models: ajouModels.map { ($0, $0) }, directEntry: true)
         case "openai": ModelDropdown(selection: openAI, models: apiModels.map { ($0, $0) }, directEntry: true)
         default: codexModelField(codex, codexModels)
         }
