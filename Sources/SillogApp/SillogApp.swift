@@ -7,6 +7,7 @@ import SillogCore
 @main
 enum AppEntry {
     static func main() {
+        UserDefaults.migrateLegacyDomain()
         UserDefaults.migrateLegacyKeys()
         // 개발용: 창 없이 상태별 화면을 PNG 로 그리고 끝난다 (SnapshotRunner)
         if let directory = SillogEnv.value("SNAPSHOT"), !directory.isEmpty {

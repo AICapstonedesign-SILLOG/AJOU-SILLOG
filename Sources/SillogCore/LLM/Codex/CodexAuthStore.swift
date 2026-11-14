@@ -8,7 +8,7 @@ public final class CodexAuthStore: @unchecked Sendable {
 
     public init(fileURL: URL = CodexAuthStore.defaultURL()) { self.fileURL = fileURL }
 
-    /// ~/Library/Application Support/Sillog/codex-auth.json (환경변수 SILLOG_CODEX_AUTH 로 변경 가능)
+    /// ~/Library/Application Support/AJOU-SILLOG/codex-auth.json (환경변수 SILLOG_CODEX_AUTH 로 변경 가능)
     public static func defaultURL() -> URL {
         if let override = SillogEnv.value("CODEX_AUTH"), !override.isEmpty {
             return URL(fileURLWithPath: override)

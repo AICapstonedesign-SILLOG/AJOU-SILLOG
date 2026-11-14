@@ -2,7 +2,7 @@ import AppKit
 import QuartzCore
 import SillogCore
 
-/// 개발용: 스크롤 끊김 재기. 숨은 설정 frameLog 를 켜면(defaults write com.sillog.app frameLog -bool true) 화면 갱신마다 불려
+/// 개발용: 스크롤 끊김 재기. 숨은 설정 frameLog 를 켜면(defaults write com.capstone.sillog frameLog -bool true) 화면 갱신마다 불려
 /// 메인 스레드가 다음 프레임에 늦은 횟수를 재고, 늦은 프레임이 있던 1초마다 지금 화면 이름과 함께 app.log 에 남긴다 (10/29: 업무 목록은 부드럽고 파일·지난 기록은 끊김)
 @MainActor
 final class FrameMonitor: NSObject {

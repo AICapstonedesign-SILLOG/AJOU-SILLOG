@@ -7,7 +7,7 @@
 ## 이슈
 
 - 버그는 macOS 버전, SILLOG 버전(내려받은 릴리스 이름, 예: SILLOG 0.1.0 (build 22)), 재현 순서를 적어 주세요.
-- 로그(`~/Library/Application Support/Sillog/app.log`)를 붙일 때는 내 기록, 파일 경로, 계정 정보가 들어 있지 않은지 먼저 확인해 주세요.
+- 로그(`~/Library/Application Support/AJOU-SILLOG/app.log`)를 붙일 때는 내 기록, 파일 경로, 계정 정보가 들어 있지 않은지 먼저 확인해 주세요.
 - 보안 문제는 이슈로 올리지 말고 [보안 정책](SECURITY.md)을 따라 주세요.
 
 ## PR
@@ -34,7 +34,7 @@ Issues and pull requests are welcome.
 ## Issues
 
 - For bugs, include your macOS version, SILLOG version (the release you downloaded, like SILLOG 0.1.0 (build 22)), and steps to reproduce.
-- If you attach the log (`~/Library/Application Support/Sillog/app.log`), check first that it doesn't contain your records, file paths, or account details.
+- If you attach the log (`~/Library/Application Support/AJOU-SILLOG/app.log`), check first that it doesn't contain your records, file paths, or account details.
 - Don't file security issues publicly. Follow the [security policy](SECURITY.md) instead.
 
 ## Pull requests

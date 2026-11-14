@@ -103,7 +103,7 @@ public struct EventStore: Sendable {
         return seconds.sorted { $0.value > $1.value }.map { (app: $0.key, seconds: $0.value) }
     }
 
-    public static let contentlessBundles: Set<String> = ["com.apple.loginwindow", "com.apple.ScreenSaver.Engine", "com.apple.finder", "com.sillog.app", "excluded"]
+    public static let contentlessBundles: Set<String> = ["com.apple.loginwindow", "com.apple.ScreenSaver.Engine", "com.apple.finder", "com.capstone.sillog", "com.sillog.app", "excluded"]
 
     public static func assignChats(_ conn: Database, ids: [Int64], taskId: Int64?) throws {
         guard !ids.isEmpty else { return }

@@ -183,7 +183,7 @@ final class AppState: ObservableObject {
             self.chat = ChatState(db: database, makeClient: { [unowned self] in self.makeChatClient() },
                                   makeProjectClient: { [unowned self] in self.makeClient() })
             self.chat?.userInstructions = { [unowned self] in self.settings.chatInstructions }
-            // 숨은 설정: defaults write com.sillog.app batchPipeline single (없으면 기본값인 3단계),
+            // 숨은 설정: defaults write com.capstone.sillog batchPipeline single (없으면 기본값인 3단계),
             // themes -bool true (없으면 분야 붙이기는 꺼짐), calendar -bool true (없으면 일정 찾기는 꺼짐, AppFeatures)
             let batchConfig = Self.batchConfig(themes: UserDefaults.standard.bool(forKey: "themes"), pipeline: UserDefaults.standard.string(forKey: "batchPipeline"),
                                                calendar: AppFeatures.calendarOn)

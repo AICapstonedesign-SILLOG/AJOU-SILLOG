@@ -158,7 +158,7 @@ Your records are stored on your Mac, but whatever is used for organizing and cha
 - Deleting: right-click a task, area, or graph node to delete it together with its raw records.
 
 ```text
-~/Library/Application Support/Sillog/
+~/Library/Application Support/AJOU-SILLOG/   # kept apart from SILLOG
 ├── sillog.sqlite   # activity, graph, chats, artifacts, schedules
 ├── captures/       # screenshots
 ├── library/        # uploaded files, artifacts, saved answers
@@ -228,7 +228,7 @@ Estimated time: about 2 minutes
 git clone https://github.com/sillog-admin/SILLOG.git
 cd SILLOG
 ./scripts/make-app.sh
-open build/SILLOG.app
+open build/AJOU-SILLOG.app
 ```
 
 `make-app.sh` makes a release build, signs it, and installs it to `~/Applications`. For development:

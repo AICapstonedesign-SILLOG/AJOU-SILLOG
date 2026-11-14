@@ -45,6 +45,20 @@ final class SettingsCompatTests: XCTestCase {
         XCTAssertEqual(keychain.llmProvider, "openai", "the key is in the Keychain under settings.llm, so the connection stays")
     }
 
+    func testSettingsFromTheOldAjouBundleAreCopiedWithoutTheKeychainIndex() throws {
+        let old = "test.old.\(UUID().uuidString)", new = "test.new.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: new))
+        defer { defaults.removePersistentDomain(forName: new); defaults.removePersistentDomain(forName: old) }
+        defaults.setPersistentDomain(["sillog.settings.v1": Data("{}".utf8), "sillog.onboardingCompleted": true,
+                                      "sillog.chat.secretAccounts": ["settings.ajou"]], forName: old)
+
+        UserDefaults.migrateLegacyDomain(defaults, from: old)
+
+        XCTAssertEqual(defaults.data(forKey: "sillog.settings.v1"), Data("{}".utf8))
+        XCTAssertTrue(defaults.bool(forKey: "sillog.onboardingCompleted"))
+        XCTAssertNil(defaults.object(forKey: "sillog.chat.secretAccounts"), "the old Keychain items are not readable under the new id")
+    }
+
     func testJudgeChoiceRoundTrips() throws {
         var s = AppSettings()
         for choice in AppSettings.JudgeChoice.allCases {

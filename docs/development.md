@@ -6,10 +6,10 @@
 
 ```bash
 ./scripts/make-app.sh
-open build/SILLOG.app
+open build/AJOU-SILLOG.app
 ```
 
-빌드 스크립트는 소스를 임시 경로에 복사해 컴파일하고 앱 번들을 서명합니다. 완성된 앱은 `~/Applications/SILLOG.app`에 설치하며, `build/SILLOG.app`은 설치된 앱으로 연결되는 심볼릭 링크입니다. 컴파일과 서명은 Documents 동기화의 영향을 피하면서, 실행과 권한 등록에는 일정한 설치 경로를 사용합니다.
+빌드 스크립트는 소스를 임시 경로에 복사해 컴파일하고 앱 번들을 서명합니다. 완성된 앱은 `~/Applications/AJOU-SILLOG.app`에 설치하며, `build/AJOU-SILLOG.app`은 설치된 앱으로 연결되는 심볼릭 링크입니다. 컴파일과 서명은 Documents 동기화의 영향을 피하면서, 실행과 권한 등록에는 일정한 설치 경로를 사용합니다.
 
 서명 인증서는 `SIGN_IDENTITY` 지정값 → `Developer ID Application` → `SILLOG Release` → `Apple Development` → ad-hoc 순서로 선택합니다. 직접 지정한 인증서로 서명하지 못하면 ad-hoc으로 넘어가지 않고 멈춥니다. 인증서로 서명할 때는 공증에 필요한 하드닝 런타임과 타임스탬프를 붙이고, 권한(entitlements)은 `scripts/SILLOG.entitlements`에서 읽습니다.
 
@@ -19,15 +19,15 @@ SIGN_IDENTITY="Developer ID Application" ./scripts/make-app.sh
 
 main 릴리스는 Developer ID 인증서로 서명하고, dmg를 Apple에 공증받은 뒤 릴리스로 올립니다. CI는 GitHub Secrets의 `SILLOG_SIGN_P12`(base64로 인코딩한 Developer ID .p12)와 `SILLOG_SIGN_P12_PASSWORD`로 인증서를 가져오고, `SILLOG_NOTARY_KEY`(App Store Connect API `.p8` 내용), `SILLOG_NOTARY_KEY_ID`, `SILLOG_NOTARY_ISSUER_ID`로 공증합니다. 같은 인증서로 서명하므로 업데이트해도 키체인 접근과 macOS 권한이 유지됩니다. `SILLOG Release`는 예전 릴리스에 쓰던 자체 서명 인증서입니다. 인증서 파일과 암호는 GitHub Secrets와 팀 비밀번호 관리자에만 두고, 저장소에는 커밋하지 않습니다. PR 빌드는 Secrets를 쓰지 않도록 ad-hoc으로 서명합니다.
 
-번들 ID는 `com.sillog.app`입니다. 같은 번들 ID만으로 권한 유지가 보장되는 것은 아니며, **동일한 서명 인증서도 필요합니다.** ad-hoc 서명에서는 재빌드 후 권한을 다시 허용해야 할 수 있습니다.
+번들 ID는 `com.capstone.sillog`입니다. 같은 번들 ID만으로 권한 유지가 보장되는 것은 아니며, **동일한 서명 인증서도 필요합니다.** ad-hoc 서명에서는 재빌드 후 권한을 다시 허용해야 할 수 있습니다.
 
 문제가 생겼을 때:
 
-- **화면 기록 목록에 앱이 없음**: 시스템 설정의 화면 기록 목록에 `~/Applications/SILLOG.app`을 직접 추가하고 허용한 뒤 앱을 종료하고 다시 실행합니다.
+- **화면 기록 목록에 앱이 없음**: 시스템 설정의 화면 기록 목록에 `~/Applications/AJOU-SILLOG.app`을 직접 추가하고 허용한 뒤 앱을 종료하고 다시 실행합니다.
 - **시스템 설정은 허용인데 앱은 권한 없음**: ad-hoc 서명으로 다시 빌드하면 기존 권한에 저장된 서명과 달라질 수 있습니다. 앱을 종료하고 화면 기록 목록의 SILLOG 항목을 제거한 뒤, 설치된 앱을 다시 추가·허용하고 실행합니다. 재빌드 후에도 권한을 유지하려면 같은 개발자 인증서로 서명합니다.
 - **이미 실행 중 안내**: 같은 DB를 사용하는 기존 앱 또는 `swift run SillogApp` 프로세스를 종료합니다. 수집 중인 DB에 두 인스턴스가 동시에 쓰지 않도록 잠금이 걸립니다.
 - **`no such module 'XCTest'`**: 전체 Xcode와 개발자 경로를 확인합니다. Command Line Tools만 설치한 환경에는 XCTest가 없을 수 있습니다. 앱 빌드 성공과 단위 테스트 통과는 별도로 확인해야 합니다.
-- **실행·권한·정리 오류 확인**: `~/Library/Application Support/Sillog/app.log`를 확인합니다. 로그에 화면 내용이나 토큰은 기록하지 않습니다.
+- **실행·권한·정리 오류 확인**: `~/Library/Application Support/AJOU-SILLOG/app.log`를 확인합니다. 로그에 화면 내용이나 토큰은 기록하지 않습니다.
 
 ## 환경변수
 
@@ -42,8 +42,8 @@ main 릴리스는 Developer ID 인증서로 서명하고, dmg를 Apple에 공증
 | `SILLOG_SHOW_WINDOW=1` | 시작 시 메인 창 표시 |
 | `SILLOG_REQUEST_PERMISSIONS=1` | 시작 시 손쉬운 사용·화면 기록 권한 요청 |
 | (녹음 받아쓰기 모델) | Whisper large-v3-turbo 압축판(`openai_whisper-large-v3-v20240930_626MB`, 약 610MB)을 처음 받아쓸 때 데이터 폴더의 `models/` 아래로 내려받는다(WhisperKit, 기기 안). 녹음하는 동안 30초쯤마다 조용한 순간에 잘라 미리 받아써 두고(`LiveTranscription`), 끝나면 남은 조각만 받아쓴다(11분 녹음도 끝나고 약 2초). 앱을 다시 켰거나 미리 받아쓰기가 실패하면 파일 전체를 같은 30초 조각으로 받아쓴다. 내려받기·불러오기에 실패하면 애플 기기 안 음성 인식으로 받아쓴다. 모델은 90초 동안 안 쓰면 내려놓는다 |
-| `SILLOG_TRANSCRIBE_TRACE` | 개발용 받아쓰기 진단: `<녹음 파일>|<적을 파일>`. 앱과 같은 방식으로 받아쓰며 인식기 결과(마지막 결과·발화 끝 표시·끝 시각·글)를 하나하나 적고 끝난다. 음성 인식 권한이 앱 번들에만 있어 `open -n SILLOG.app --env 'SILLOG_TRANSCRIBE_TRACE=…'` 로 띄운다. `SILLOG_TRANSCRIBE_ENGINE=apple` 이면 애플 음성 인식으로(기본은 Whisper 로 파일 전체), `SILLOG_TRANSCRIBE_GAIN=2` 로 애플 인식의 키울 배수를 직접 정할 수 있다. `SILLOG_TRANSCRIBE_ENGINE=live` 면 파일을 녹음기처럼 흘려보내며 녹음 중 미리 받아쓰기를 하고 끝난 뒤 글이 나오기까지 걸린 시간을 적는다(`SILLOG_TRANSCRIBE_SPEED=8` 로 8배 빨리) |
-| (숨은 설정 `frameLog`) | `defaults write com.sillog.app frameLog -bool true` 면 화면 갱신마다 메인 스레드가 늦은 프레임을 재서, 늦은 프레임이 있던 1초마다 화면 이름과 함께 app.log 에 `프레임 기록 자료 > 파일: 120장 중 늦음 3 (많이 늦음 1), 가장 긴 간격 40ms` 처럼 남긴다. 앱을 다시 켜야 적용, `defaults delete … frameLog` 로 끈다 |
+| `SILLOG_TRANSCRIBE_TRACE` | 개발용 받아쓰기 진단: `<녹음 파일>|<적을 파일>`. 앱과 같은 방식으로 받아쓰며 인식기 결과(마지막 결과·발화 끝 표시·끝 시각·글)를 하나하나 적고 끝난다. 음성 인식 권한이 앱 번들에만 있어 `open -n AJOU-SILLOG.app --env 'SILLOG_TRANSCRIBE_TRACE=…'` 로 띄운다. `SILLOG_TRANSCRIBE_ENGINE=apple` 이면 애플 음성 인식으로(기본은 Whisper 로 파일 전체), `SILLOG_TRANSCRIBE_GAIN=2` 로 애플 인식의 키울 배수를 직접 정할 수 있다. `SILLOG_TRANSCRIBE_ENGINE=live` 면 파일을 녹음기처럼 흘려보내며 녹음 중 미리 받아쓰기를 하고 끝난 뒤 글이 나오기까지 걸린 시간을 적는다(`SILLOG_TRANSCRIBE_SPEED=8` 로 8배 빨리) |
+| (숨은 설정 `frameLog`) | `defaults write com.capstone.sillog frameLog -bool true` 면 화면 갱신마다 메인 스레드가 늦은 프레임을 재서, 늦은 프레임이 있던 1초마다 화면 이름과 함께 app.log 에 `프레임 기록 자료 > 파일: 120장 중 늦음 3 (많이 늦음 1), 가장 긴 간격 40ms` 처럼 남긴다. 앱을 다시 켜야 적용, `defaults delete … frameLog` 로 끈다 |
 | `SILLOG_LAYA_URL` | Laya 분류기 주소. 기본값 `http://127.0.0.1:8766/v1/privacy` |
 | `SILLOG_TAB` | 시작 탭: `graph`, `chat`, `records`(기록 자료), `calendar`, `settings`. `files`, `history`(지난 기록), `library` 는 기록 자료의 그 구역으로, `activity` 는 설정의 활동 로그로 연다 (업무 목록은 그래프 탭에만 있다) |
 
@@ -82,7 +82,7 @@ SILLOG_TEST_DB="$SILLOG_TEST_DIR/sillog.sqlite"
 swift run sillogctl --db "$SILLOG_TEST_DB" seed-demo
 swift run sillogctl --db "$SILLOG_TEST_DB" batch --all --demo-llm
 swift run sillogctl --db "$SILLOG_TEST_DB" stats
-SILLOG_DB="$SILLOG_TEST_DB" SILLOG_SHOW_WINDOW=1 build/SILLOG.app/Contents/MacOS/Sillog
+SILLOG_DB="$SILLOG_TEST_DB" SILLOG_SHOW_WINDOW=1 build/AJOU-SILLOG.app/Contents/MacOS/Sillog
 ```
 
 `--demo-llm`은 시드 데이터를 규칙으로 분류하는 가짜 모델입니다. 수집→분류→그래프 흐름을 확인하는 용도이며 실제 LLM 품질 평가에 사용할 수 없습니다. 앱의 로그인·온보딩을 우회하지는 않습니다.
@@ -106,7 +106,7 @@ swift run sillogctl export-cypher graph.cypher
 `sillogctl find-events 배치ID…`는 저장된 배치의 행을 일정 찾기에 다시 보내 찾은 일정을 보여 줍니다(제안은 만들지 않음, 배치당 LLM 호출 1번). 앱이 아직 모르는 마이그레이션이 있으면 CLI가 DB를 열면서 적용하므로, 실제 기록으로 볼 때는 사본을 떠서 씁니다.
 
 ```bash
-sqlite3 "file:$HOME/Library/Application Support/Sillog/sillog.sqlite?mode=ro" ".backup '/tmp/wg-copy.sqlite'"
+sqlite3 "file:$HOME/Library/Application Support/AJOU-SILLOG/sillog.sqlite?mode=ro" ".backup '/tmp/wg-copy.sqlite'"
 SILLOG_DB=/tmp/wg-copy.sqlite swift run sillogctl find-events 1851 1779
 ```
 
@@ -196,7 +196,7 @@ swift run sillogctl digest show --week 2026-W40   # 요약 확인
 - **프로젝트 제안·소속**(화면에서 뺌, 자동 제안도 부르지 않음. 데이터와 코드는 남김): `Sources/SillogCore/Chat/ProjectOrganizer.swift`, `ProjectStore.swift`, `Sources/SillogApp/Chat/ProjectState.swift`
 - **자료 보관·추출**: `Sources/SillogCore/Chat/LibraryStore.swift`, `FileTextExtractor.swift`, `Sources/SillogApp/Chat/LibraryState.swift`, `Views/LibraryView.swift`
 - **그래프 화면**: `Sources/SillogApp/Resources/graph`
-- **기능 켜고 끄기**: `Sources/SillogApp/AppFeatures.swift`. 캘린더(캘린더 탭, 메뉴 막대 캘린더 줄, 일정 찾기·알림, 설정·온보딩의 캘린더 권한)는 기본 꺼짐, `defaults write com.sillog.app calendar -bool true` 로 켠다
+- **기능 켜고 끄기**: `Sources/SillogApp/AppFeatures.swift`. 캘린더(캘린더 탭, 메뉴 막대 캘린더 줄, 일정 찾기·알림, 설정·온보딩의 캘린더 권한)는 기본 꺼짐, `defaults write com.capstone.sillog calendar -bool true` 로 켠다
 - **일정 제안**: `Sources/SillogCore/Calendar/EventFinder.swift`(정리를 반영한 뒤 그 행 전부(업무 외 포함)를 다시 보내 일정을 찾는다. 남기는 것은 대화에서 정한 약속·회의·마감과 보고 있는 과제 하나의 마감뿐이고, 기간·계획표·캘린더 앱 화면은 뺀다. 무시한 제안은 거절한 예로 같이 보내고, 한 웹페이지에서 3개 넘게 남기면 계획표로 보고 버린다. 이미 아는 일정과 겹치는 것도 거른다), `Storage/EventSuggestionStore.swift`, `Sources/SillogApp/Calendar/CalendarService.swift`(EventKit: 오늘 일정, 등록, 직접 넣은 일정은 제안에서 닫기), `AppState+Calendar.swift`(새 제안 알림, 알림의 [등록]/[무시]). 캘린더 화면은 `Views/CalendarView.swift`(오른쪽 제안 카드·연결한 캘린더), `Calendar/CalendarWebView.swift`(웹 달력과 주고받기: 보이는 기간의 일정을 약속으로 답함), `Calendar/CalendarFeed.swift`(일정·제안 → FullCalendar 이벤트), `Resources/calendar`(FullCalendar 6.1.22 표준 묶음과 한국어, MIT, `vendor/fullcalendar/LICENSE.md`). 구글 계정 직접 연결은 `Sources/SillogCore/Calendar/GoogleCalendarClient.swift`(캘린더 목록·기간 일정·일정 넣기)와 `CalendarService` 의 구글 확장(로그인은 `ConnectorAuth` 의 "gcal", 맥과 겹치는 캘린더는 `CalendarFeed.merge` 가 숨김)
 - **정리 제안 (하루 한 번)**: `Sources/SillogCore/Memory/WeeklyReview.swift`(AI 2번: TaskMerger 를 60일로 + 한 제품의 다른 이름·부분 작업 규칙과 업무별 프로젝트 폴더, 주제·나중에 할 일·문제를 한 번에 `tidy_graph`. 짧은 세션 붙이기는 AI 없이. `ReviewStore` 는 review_proposals 표. 거절은 짝 단위(`ReviewProposal.units`)로 기억해 다음 주 묶음이 달라져도 빼고, 반영한 것은 막지 않음. 반영과 표시는 `ReviewStore.apply` 한 트랜잭션, 앞에서 합쳐져 사라진 키는 남은 키로 따라감. 주제·문제 정리 호출이 실패하면 업무 합치기만 제안), `Sources/SillogApp/AppState+Review.swift`(오늘 안 만들었으면 기록 정리 루프에서, 새 제안이 있을 때만 알림, 실패하면 하루 뒤, 시트를 연 동안은 갈아 끼우지 않음, 반영하는 동안 정리 멈춤), `Views/ReviewSheet.swift`(시트와 업무 목록 위 줄). 실제 기록으로 미리 보기: `SILLOG_DB=사본 sillogctl weekly-review`
 - **덜 쪼개고 덜 저장하기**: `SessionBuilder.glance`(1분 미만 행은 같은 날 같은 업무 세션에 붙임), ③ 업무 설명에 `topics in use`(기존 주제 이름을 다시 쓰게), `Storage/ScreenText.swift`(편집기 글자 3천 자, 업무 외 행 글자는 첫 삭제 동의와 설정한 보관 기간을 확인한 뒤 `Consolidator`에서 지움, 기간 핀은 남김)

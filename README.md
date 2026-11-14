@@ -156,7 +156,7 @@ SILLOG은 자체 서버를 두지 않아요. 업무 정리와 채팅은 내가 �
 - 지우기: 업무, 분야, 그래프 노드를 오른쪽 클릭하면 원본 기록까지 함께 지울 수 있습니다.
 
 ```text
-~/Library/Application Support/Sillog/
+~/Library/Application Support/AJOU-SILLOG/   # SILLOG과 따로 씁니다
 ├── sillog.sqlite   # 활동, 그래프, 대화, 결과물, 예약
 ├── captures/       # 스크린샷
 ├── library/        # 올린 파일, 결과물, 저장한 답변
@@ -226,7 +226,7 @@ Xcode 26(Swift 6.2)이 필요합니다. Command Line Tools만 있으면 빌드�
 git clone https://github.com/sillog-admin/SILLOG.git
 cd SILLOG
 ./scripts/make-app.sh
-open build/SILLOG.app
+open build/AJOU-SILLOG.app
 ```
 
 `make-app.sh`는 릴리스 빌드와 서명을 하고 `~/Applications`에 설치합니다. 개발할 때는 아래 명령을 씁니다.

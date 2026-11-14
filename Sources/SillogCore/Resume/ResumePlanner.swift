@@ -28,7 +28,7 @@ public struct ResumePlan: Equatable, Sendable {
 
 public enum ResumePlanner {
     /// 이 앱들은 "다시 열" 대상이 아니다 (우리 자신, 시스템, 파일 탐색기)
-    public static let ignoredApps: Set<String> = ["com.sillog.app", "com.apple.finder", "com.apple.loginwindow", "com.apple.systempreferences",
+    public static let ignoredApps: Set<String> = ["com.capstone.sillog", "com.sillog.app", "com.apple.finder", "com.apple.loginwindow", "com.apple.systempreferences",
                                                   "com.apple.UserNotificationCenter", "com.apple.ScreenSaver.Engine", "com.apple.Terminal", "excluded"]
     public static let browsers: Set<String> = ["com.google.Chrome", "com.apple.Safari", "com.naver.Whale", "org.mozilla.firefox", "company.thebrowser.Browser",
                                                "com.microsoft.edgemac", "com.brave.Browser", "com.google.Chrome.canary"]

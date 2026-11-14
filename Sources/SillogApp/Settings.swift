@@ -254,6 +254,16 @@ struct AppSettings: Codable, Equatable {
 }
 
 extension UserDefaults {
+    /// Copies settings saved under AJOU's pre-rename bundle id once.
+    /// Keychain secrets stay with the old id, so the index of saved secrets and the remote connector cache are left behind too.
+    static func migrateLegacyDomain(_ defaults: UserDefaults = .standard, from old: String = "com.capstone.workgraph") {
+        guard defaults.object(forKey: "sillog.settings.v1") == nil, defaults.object(forKey: "workgraph.settings.v1") == nil,
+              let values = defaults.persistentDomain(forName: old) else { return }
+        for (key, value) in values where !["sillog.chat.secretAccounts", "sillog.connectors.remote"].contains(key) {
+            defaults.set(value, forKey: key)
+        }
+    }
+
     /// Moves pre-rename `workgraph.*` keys to `sillog.*` once.
     static func migrateLegacyKeys(_ defaults: UserDefaults = .standard) {
         for name in ["settings.v1", "onboardingCompleted", "launchedBefore"] {

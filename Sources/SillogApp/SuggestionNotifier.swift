@@ -143,7 +143,7 @@ final class SuggestionNotifier: NSObject, UNUserNotificationCenterDelegate, @unc
 
     /// 시스템 설정 > 알림 > SILLOG
     static func openSystemSettings() {
-        let id = Bundle.main.bundleIdentifier ?? "com.sillog.app"
+        let id = Bundle.main.bundleIdentifier ?? "com.capstone.sillog"
         if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(id)") { NSWorkspace.shared.open(url) }
     }
 

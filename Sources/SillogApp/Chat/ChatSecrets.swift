@@ -4,7 +4,7 @@ import SillogCore
 
 // One item for every account, because each rebuild changes the cdhash and the keychain asks once per item.
 enum ChatSecrets {
-    private static let service = "com.sillog.app.chat"
+    private static let service = "com.capstone.sillog.chat"
     private static let combinedAccount = "secrets"
     private static let lock = NSLock()
     nonisolated(unsafe) private static var cache: [String: String]?

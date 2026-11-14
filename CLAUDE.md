@@ -11,7 +11,7 @@ swift build                                   # 디버그 빌드 (처음에는 �
 swift test                                    # 전체 테스트. XCTest를 쓰므로 Xcode가 있어야 함
 swift test --filter SillogCoreTests.JevClientTests             # 테스트 클래스 하나
 swift test --filter SillogCoreTests.JevClientTests/testName    # 테스트 하나
-./scripts/make-app.sh && open build/SILLOG.app   # 릴리스 빌드, 서명, ~/Applications 설치
+./scripts/make-app.sh && open build/AJOU-SILLOG.app   # 릴리스 빌드, 서명, ~/Applications 설치
 swift run sillogctl                               # 개발용 CLI. 기본 DB가 실제 기록이므로 실험할 때는 --db로 다른 파일 지정
 swift run sillogctl check-judge jev|decisions     # 판단 모델 실제 호출 확인. 키는 .env에서 읽음
 ```
@@ -78,10 +78,10 @@ LLM 클라이언트는 `Settings.swift`(`AppSettings`)의 값으로 `AppState.ma
 - **종류를 나타내는 값은 enum으로 만듭니다.** 지금은 `"codex"`, `"openai"`, `"jev"` 같은 문자열을 직접 비교하는 코드가 많습니다. 새 값은 `String` raw value enum으로 만들고, 저장되는 JSON 문자열은 그대로 둬서 예전 설정과 호환되게 합니다.
 - **오류는 `LocalizedError`로 던집니다.** `errorDescription`에는 사용자에게 보여 줄 문장을 넣습니다. UI는 `error.localizedDescription`을 그대로 씁니다. 원래 오류 문구는 버리지 말고 배치 기록(`StageCall`)이나 `AppLog`에 남깁니다.
 - **시각은 Unix 초(`Double`)로** 저장하고 주고받습니다. DB와 Core 전체가 이미 이렇게 되어 있습니다.
-- **비밀값은 Keychain에 둡니다.** API 키와 토큰은 `ChatSecrets`(서비스 `com.sillog.app.chat`)에 저장하고, UserDefaults·로그·DB·배치 기록에는 넣지 않습니다.
+- **비밀값은 Keychain에 둡니다.** API 키와 토큰은 `ChatSecrets`(서비스 `com.capstone.sillog.chat`)에 저장하고, UserDefaults·로그·DB·배치 기록에는 넣지 않습니다.
 - **화면 문구는 `tr("한국어 원문")`으로 씁니다.** 한국어 원문이 키이고, 영어는 `Sources/SillogCore/Localization/en.json` 한 곳에서 찾습니다. 보간 값은 키에서 `%@`로 바뀌고, 영어에서 순서를 바꿔야 하면 `%1$@`처럼 씁니다. 번역이 없으면 한국어 원문이 그대로 나옵니다. 저장값으로 쓰는 enum 원시값은 그대로 두고 화면에서만 `L10n.tr(key:)`로 바꿉니다. AppLog, 프롬프트, DB에 저장되는 이름은 감싸지 않습니다. 새 문구를 넣으면 `en.json`에도 추가합니다(`L10nTests`가 자리표시자 수를 확인합니다).
 - **글자 크기는 역할 6단계로만 씁니다.** 화면 글자는 `Brand.font(.역할)`로 지정합니다. 역할은 화면 제목(`.screenTitle`, 22 bold), 구역 제목(`.sectionTitle`, 15 medium), 줄 제목(`.rowTitle`, 13 medium), 본문(`.body`, 12), 보조 설명(`.caption`, 11), 작은 표식(`.tag`, 10)입니다. 크기가 아니라 그 글이 화면에서 하는 역할로 고르고, 굵기는 강조가 필요할 때만 두 번째 인자로 바꿉니다. `Brand.suit(크기)`를 직접 쓰는 것은 처음 실행 화면 같은 26pt 이상의 큰 글자뿐입니다. 숫자용 Jost 글꼴(`Brand.jost`)도 놓이는 자리의 역할 크기에 맞춥니다.
-- **이름은 SILLOG로 씁니다.** 화면 문구, 문서, 커밋 메시지, PR 설명에서 앱 이름은 대문자 `SILLOG`로 씁니다(`Sillog`, `sillog` 아님). 한국어 문장에서는 "실록"으로 읽어 조사를 붙입니다(SILLOG은, SILLOG이, SILLOG을). 코드 식별자(`SillogCore`, `SillogApp` 등 타깃·타입 이름), 번들 ID `com.sillog.app`, URL scheme `sillog`, 데이터 경로, `SILLOG_*` 환경변수는 호환성 때문에 지금 이름을 그대로 둡니다.
+- **이름은 SILLOG로 씁니다.** 화면 문구, 문서, 커밋 메시지, PR 설명에서 앱 이름은 대문자 `SILLOG`로 씁니다(`Sillog`, `sillog` 아님). 한국어 문장에서는 "실록"으로 읽어 조사를 붙입니다(SILLOG은, SILLOG이, SILLOG을). 코드 식별자(`SillogCore`, `SillogApp` 등 타깃·타입 이름), 번들 ID `com.capstone.sillog`, URL scheme `sillog`, 데이터 경로, `SILLOG_*` 환경변수는 호환성 때문에 지금 이름을 그대로 둡니다.
 - **언어 설정**은 `AppSettings.language`(`ko`/`en`)이고 `L10n.current`에 반영됩니다. 바꾸면 창 전체를 다시 그립니다(`View.localized`). 그래프·캘린더 웹 화면은 `WebL10n`이 같은 표로 글자를 바꿔 주므로 JS에는 한국어 원문을 그대로 씁니다. AI가 만드는 업무 이름·요약은 프롬프트의 `L10n.current.promptName`으로 언어를 정합니다. 한국어로 쓴 도구 스키마 설명에서는 출력 언어를 `L10n.current.nameInKorean`("한국어"/"영어")으로 씁니다. "한국어 한 문장"처럼 박아 두면 프롬프트와 어긋나서 영어 설정에서도 모델이 한국어로 답합니다(`L10nTests`가 확인합니다).
 - **영어 설정에서 한국어가 남지 않게** 아래를 지킵니다.
   - 날짜 형식기에는 `Locale(identifier: L10n.current.rawValue)`를 쓰고 형식 문자열도 `tr("M월 d일")`처럼 감쌉니다. `ko_KR`을 박거나 시스템 지역을 따르는 `.formatted()` 기본값에 맡기지 않습니다.
@@ -102,9 +102,9 @@ LLM 클라이언트는 `Settings.swift`(`AppSettings`)의 값으로 `AppState.ma
 
 - **DB 스키마**: `SillogDatabase`의 GRDB migrator 끝에 `registerMigration`을 추가만 합니다. 이미 배포한 마이그레이션은 고치지 않습니다.
 - **설정**: `AppSettings`는 UserDefaults에 JSON 한 덩어리로 저장됩니다. 새 필드는 `decodeIfPresent ?? 기본값`으로 읽어서 예전 저장값이 초기화되지 않게 합니다.
-- **번들 ID** `com.sillog.app`, **Keychain 서비스** `com.sillog.app.chat`, **URL scheme** `sillog`(OAuth 콜백), **서명 인증서**를 바꾸면 macOS 권한과 저장된 토큰을 잃습니다.
-- 데이터 경로(`~/Library/Application Support/Sillog`), `SILLOG_*` 환경변수, UserDefaults 키 이름을 바꿀 때는 예전 이름을 읽어서 옮기는 처리를 같이 넣습니다.
-- 예전 이름(WorkGraph)은 이렇게 이어받습니다. 데이터 폴더 `WorkGraph`는 첫 실행 때 `Sillog`로 옮기고 그 자리에 심볼릭 링크를 남깁니다(DB에 저장된 절대 경로 때문). `workgraph.sqlite`는 `sillog.sqlite`로 바꿉니다(`SillogDatabase.migrateLegacyDirectory`). 환경변수는 `SillogEnv.value`가 `WORKGRAPH_*`도 읽고, UserDefaults는 `UserDefaults.migrateLegacyKeys`가 `workgraph.*` 키를 옮깁니다.
+- **번들 ID** `com.capstone.sillog`, **Keychain 서비스** `com.capstone.sillog.chat`, **URL scheme** `sillog`(OAuth 콜백), **서명 인증서**를 바꾸면 macOS 권한과 저장된 토큰을 잃습니다.
+- 데이터 경로(`~/Library/Application Support/AJOU-SILLOG`), `SILLOG_*` 환경변수, UserDefaults 키 이름을 바꿀 때는 예전 이름을 읽어서 옮기는 처리를 같이 넣습니다.
+- 예전 이름(WorkGraph)은 이렇게 이어받습니다. 데이터 폴더 `WorkGraph`는 첫 실행 때 `AJOU-SILLOG`로 옮기고 그 자리에 심볼릭 링크를 남깁니다(DB에 저장된 절대 경로 때문). `workgraph.sqlite`는 `sillog.sqlite`로 바꿉니다(`SillogDatabase.migrateLegacyDirectory`). SILLOG의 `Sillog` 폴더와는 기록, ChatGPT 로그인, 실행 잠금이 섞이지 않게 따로 씁니다. 예전 번들 ID `com.capstone.workgraph`의 설정은 `UserDefaults.migrateLegacyDomain`이 한 번 복사합니다. 예전 앱은 API 키를 설정 JSON에 그대로 두었으므로 함께 복사되고 첫 실행 때 새 Keychain으로 옮겨집니다. 예전 키체인 서비스 `com.capstone.workgraph.chat`의 커넥터 토큰은 읽을 수 없으므로 커넥터는 다시 연결합니다. 환경변수는 `SillogEnv.value`가 `WORKGRAPH_*`도 읽고, UserDefaults는 `UserDefaults.migrateLegacyKeys`가 `workgraph.*` 키를 옮깁니다.
 
 ## 커밋
 

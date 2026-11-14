@@ -35,6 +35,18 @@ final class LegacyRenameTests: XCTestCase {
         XCTAssertEqual(SillogDatabase.migrateLegacyDirectory(in: base), dir, "second run is a no-op")
     }
 
+    /// AJOU-SILLOG moves its old WorkGraph folder to its own name, never into SILLOG's folder.
+    func testAjouMovesLegacyFolderToItsOwnFolder() throws {
+        let legacy = try makeLegacy()
+        try fm.createDirectory(at: base.appendingPathComponent("Sillog"), withIntermediateDirectories: true)
+        let dir = SillogDatabase.migrateLegacyDirectory(in: base, to: SillogDatabase.folderName)
+
+        XCTAssertEqual(dir.lastPathComponent, "AJOU-SILLOG")
+        XCTAssertEqual(try String(contentsOf: dir.appendingPathComponent("sillog.sqlite"), encoding: .utf8), "db")
+        XCTAssertEqual(try String(contentsOf: legacy.appendingPathComponent("captures/a.jpg"), encoding: .utf8), "jpg")
+        XCTAssertEqual(try fm.contentsOfDirectory(atPath: base.appendingPathComponent("Sillog").path), [])
+    }
+
     func testKeepsLegacyFolderWhileAnOldBuildHoldsItsLock() throws {
         let legacy = try makeLegacy()
         let running = InstanceLock(databasePath: legacy.appendingPathComponent("workgraph.sqlite").path)

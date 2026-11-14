@@ -45,14 +45,17 @@ public final class SillogDatabase: @unchecked Sendable {
         return try SillogDatabase(queue: DatabaseQueue(configuration: config))
     }
 
-    /// ~/Library/Application Support/Sillog
+    /// ~/Library/Application Support/AJOU-SILLOG
     public static func defaultDirectory() -> URL { resolvedDirectory }
 
+    // Its own folder, not SILLOG's, so records, the ChatGPT login and the run lock never mix between the two apps.
     private static let resolvedDirectory: URL = {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
-        return migrateLegacyDirectory(in: base)
+        return migrateLegacyDirectory(in: base, to: folderName)
     }()
+
+    static let folderName = "AJOU-SILLOG"
 
     /// `SILLOG_DB` (or legacy `WORKGRAPH_DB`) overrides it so dev runs never touch real data.
     public static func defaultPath() -> String {
@@ -68,14 +71,14 @@ public final class SillogDatabase: @unchecked Sendable {
     static let databaseName = "sillog.sqlite"
     static let legacyDatabaseName = "workgraph.sqlite"
 
-    /// Moves the pre-rename `WorkGraph` folder to `Sillog` and leaves a symlink behind,
+    /// Moves the pre-rename `WorkGraph` folder to `name` and leaves a symlink behind,
     /// because screenshot and file paths stored in the DB are absolute.
-    /// Args: base is the Application Support folder.
+    /// Args: base is the Application Support folder, name the current folder name.
     /// Returns: the folder to use. The legacy folder whenever moving is unsafe or fails, so data is never left behind.
     /// Raises: nothing.
-    static func migrateLegacyDirectory(in base: URL) -> URL {
+    static func migrateLegacyDirectory(in base: URL, to name: String = "Sillog") -> URL {
         let fm = FileManager.default
-        let current = base.appendingPathComponent("Sillog", isDirectory: true)
+        let current = base.appendingPathComponent(name, isDirectory: true)
         let legacy = base.appendingPathComponent("WorkGraph", isDirectory: true)
         let legacyIsFolder = (try? legacy.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])).map { $0.isDirectory == true && $0.isSymbolicLink != true } ?? false
         guard legacyIsFolder, !fm.fileExists(atPath: current.path) else { return current }

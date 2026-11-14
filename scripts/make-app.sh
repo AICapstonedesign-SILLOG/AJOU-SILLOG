@@ -1,5 +1,5 @@
 #!/bin/bash
-# release 빌드 → 코드 서명 → ~/Applications/SILLOG.app 설치.
+# release 빌드 → 코드 서명 → ~/Applications/AJOU-SILLOG.app 설치 (학교용, 번들 ID com.capstone.sillog).
 # 서명 인증서를 고정해 두면 다시 빌드해도 macOS 권한(손쉬운 사용·화면 기록)이 유지된다.
 #   SIGN_IDENTITY="Developer ID Application" scripts/make-app.sh   # 인증서 지정. 지정한 인증서로 서명하지 못하면 멈춘다
 #   SIGN_IDENTITY=- scripts/make-app.sh                  # ad-hoc (빌드할 때마다 권한을 다시 줘야 함)
@@ -24,8 +24,8 @@ cp "$ROOT/Package.swift" "$ROOT/Package.resolved" "$STAGE_DIR/"
 swift build --package-path "$STAGE_DIR" -c release --build-system swiftbuild --product SillogApp --scratch-path "$BUILD_DIR" --cache-path "$BUILD_DIR/cache" --config-path "$BUILD_DIR/config" --security-path "$BUILD_DIR/security" --disable-sandbox -j 2
 BIN_DIR="$(swift build --package-path "$STAGE_DIR" -c release --build-system swiftbuild --show-bin-path --scratch-path "$BUILD_DIR" --cache-path "$BUILD_DIR/cache" --config-path "$BUILD_DIR/config" --security-path "$BUILD_DIR/security" --disable-sandbox)"
 APP="$BUILD_DIR/Sillog.app"
-APP_LINK="$ROOT/build/SILLOG.app"
-INSTALLED_APP="$HOME/Applications/SILLOG.app"
+APP_LINK="$ROOT/build/AJOU-SILLOG.app"
+INSTALLED_APP="$HOME/Applications/AJOU-SILLOG.app"
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
@@ -46,7 +46,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleIdentifier</key><string>com.sillog.app</string>
+  <key>CFBundleIdentifier</key><string>com.capstone.sillog</string>
   <key>CFBundleName</key><string>SILLOG</string>
   <key>CFBundleDisplayName</key><string>SILLOG</string>
   <key>CFBundleExecutable</key><string>Sillog</string>
@@ -58,7 +58,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>NSHighResolutionCapable</key><true/>
   <key>CFBundleURLTypes</key>
   <array><dict>
-    <key>CFBundleURLName</key><string>com.sillog.app.oauth</string>
+    <key>CFBundleURLName</key><string>com.capstone.sillog.oauth</string>
     <key>CFBundleURLSchemes</key><array><string>sillog</string></array>
     <key>CFBundleTypeRole</key><string>Viewer</string>
   </dict></array>
