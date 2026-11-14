@@ -213,6 +213,9 @@ struct SettingsView: View {
                 SettingTile(tr("개인정보 가리기"), detail: tr("AI에 보내기 전에 전화번호, 주민번호, API 키를 가려요"), icon: "lock.shield") {
                     Toggle("", isOn: $state.settings.maskPII).toggleStyle(BrandSwitchStyle())
                 }
+                SettingTile(tr("민감한 화면 거르기"), detail: tr("Laya가 건강·금융·사생활이 담긴 화면을 찾아 AI에 보내지 않아요"), icon: "eye.trianglebadge.exclamationmark") {
+                    Toggle("", isOn: $state.settings.layaFilter).toggleStyle(BrandSwitchStyle())
+                }
                 SettingTile(tr("비슷한 업무 합치기"),
                             detail: state.reviewProposals.isEmpty ? tr("하루 한 번 찾아서 물어봐요") : tr("대기 중인 제안 \(state.reviewProposals.count)개"),
                             icon: "arrow.triangle.merge") {

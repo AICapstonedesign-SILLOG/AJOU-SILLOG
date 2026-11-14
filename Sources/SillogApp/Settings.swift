@@ -52,6 +52,9 @@ struct AppSettings: Codable, Equatable {
     /// 화면 기억 카드: 대표 화면을 LLM 에 보내 화면 내용을 기록한다
     var screenCards = true
     var maskPII = true
+    /// Laya v4 on scripts/laya/serve.py keeps sensitive screens away from the models.
+    /// Off by default: the weights are a private download, and without the server every batch would wait.
+    var layaFilter = false
     /// 정리 위치 후보를 찾을 폴더들 (~ 표기 허용)
     var folderRoots: [String] = ["~/Desktop", "~/Documents"]
     var language = AppLanguage.system
@@ -128,6 +131,7 @@ struct AppSettings: Codable, Equatable {
         suggestFolders = try c.decodeIfPresent(Bool.self, forKey: .suggestFolders) ?? d.suggestFolders
         screenCards = try c.decodeIfPresent(Bool.self, forKey: .screenCards) ?? d.screenCards
         maskPII = try c.decodeIfPresent(Bool.self, forKey: .maskPII) ?? d.maskPII
+        layaFilter = try c.decodeIfPresent(Bool.self, forKey: .layaFilter) ?? d.layaFilter
         folderRoots = try c.decodeIfPresent([String].self, forKey: .folderRoots) ?? d.folderRoots
         // Saves from before the setting existed had a Korean UI.
         language = try c.decodeIfPresent(AppLanguage.self, forKey: .language) ?? .ko

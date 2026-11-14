@@ -1795,5 +1795,13 @@
   "말하는 중": "Speaking",
   "눌러서 지금 보내기": "Click to send now",
   "눌러서 읽기 건너뛰기": "Click to skip the reading",
-  "SILLOG을 응용 프로그램 폴더로 옮긴 뒤 다시 열어 주세요. 디스크 이미지에서 연 SILLOG은 디스크 이미지를 꺼내면 함께 사라져요.": "Move SILLOG to the Applications folder and open it again. A copy opened from the disk image disappears when the disk image is ejected."
+  "SILLOG을 응용 프로그램 폴더로 옮긴 뒤 다시 열어 주세요. 디스크 이미지에서 연 SILLOG은 디스크 이미지를 꺼내면 함께 사라져요.": "Move SILLOG to the Applications folder and open it again. A copy opened from the disk image disappears when the disk image is ejected.",
+  "학교 계정으로 키를 받아요": "Get a key with your school account",
+  "아주대 LLM API로 연결해요": "Connect with the Ajou LLM API",
+  "학교 계정으로 키를 받아 붙여 넣으면 돼요.": "Get a key with your school account and paste it here.",
+  "아주대 LLM 사이트에 학교 계정으로 로그인해요": "Sign in to the Ajou LLM site with your school account",
+  "개발자 메뉴의 API 키 탭에서 새 키를 만들어요": "Create a new key in the API Keys tab of the developer menu",
+  "키는 한 번만 보여요. 바로 복사해요": "The key is shown only once. Copy it right away",
+  "복사한 API 키를 여기에 붙여 넣어요": "Paste the copied API key here",
+  "아주대 LLM 열기": "Open Ajou LLM"
 }

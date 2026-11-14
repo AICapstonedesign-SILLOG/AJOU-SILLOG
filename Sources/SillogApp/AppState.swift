@@ -14,6 +14,7 @@ final class AppState: ObservableObject {
             // Every write redraws all text, so only a real change is written.
             if Brand.scale != settings.textScale { Brand.scale = settings.textScale }
             PIIMasker.enabled = settings.maskPII
+            LayaClient.enabled = settings.layaFilter
         }
     }
     @Published var status = CollectorStatus()
@@ -157,6 +158,7 @@ final class AppState: ObservableObject {
         L10n.current = settings.language
         Brand.scale = settings.textScale
         PIIMasker.enabled = settings.maskPII
+        LayaClient.enabled = settings.layaFilter
         // Opened inside the dmg, SILLOG and the login item onboarding registers vanish on eject.
         if InstallLocation.needsMove(Bundle.main.bundleURL) {
             startupError = tr("SILLOG을 응용 프로그램 폴더로 옮긴 뒤 다시 열어 주세요. 디스크 이미지에서 연 SILLOG은 디스크 이미지를 꺼내면 함께 사라져요.")
@@ -192,6 +194,8 @@ final class AppState: ObservableObject {
             loadReview()
             let cardsOn = settings.screenCards && settings.captureScreenshots
             Task { await batcher.setScreenCards(cardsOn) }
+            let laya = settings.layaFilter ? LayaClient() : nil
+            Task { await batcher.setPrivacyFilter(laya) }
             // 앱을 시작할 때 분야가 없거나 종류가 옛 판인 업무를 정리한다 (처음 한 번은 기존 업무 전부). 붙였으면 그래프를 새로 그린다
             Task { [weak self] in
                 if await batcher.assignThemes() != nil { self?.graphVersion += 1 }
@@ -768,6 +772,7 @@ final class AppState: ObservableObject {
         let client = makeClient()
         let judge = makeJudge()
         let cardsOn = settings.screenCards && settings.captureScreenshots
+        let laya = settings.layaFilter ? LayaClient() : nil
         if let db {
             suggester = FolderSuggester(db: db, llm: makeQuickClient())
             recordingPipeline = makeRecordingPipeline(db)
@@ -777,6 +782,7 @@ final class AppState: ObservableObject {
             await coordinator?.update(settings: collectorSettings)
             await batcher?.setModels(organizer: client, judge: judge)
             await batcher?.setScreenCards(cardsOn)
+            await batcher?.setPrivacyFilter(laya)
             await consolidator?.setLLM(client)
         }
     }

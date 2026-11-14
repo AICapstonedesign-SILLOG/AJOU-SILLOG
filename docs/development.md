@@ -44,7 +44,25 @@ main 릴리스는 Developer ID 인증서로 서명하고, dmg를 Apple에 공증
 | (녹음 받아쓰기 모델) | Whisper large-v3-turbo 압축판(`openai_whisper-large-v3-v20240930_626MB`, 약 610MB)을 처음 받아쓸 때 데이터 폴더의 `models/` 아래로 내려받는다(WhisperKit, 기기 안). 녹음하는 동안 30초쯤마다 조용한 순간에 잘라 미리 받아써 두고(`LiveTranscription`), 끝나면 남은 조각만 받아쓴다(11분 녹음도 끝나고 약 2초). 앱을 다시 켰거나 미리 받아쓰기가 실패하면 파일 전체를 같은 30초 조각으로 받아쓴다. 내려받기·불러오기에 실패하면 애플 기기 안 음성 인식으로 받아쓴다. 모델은 90초 동안 안 쓰면 내려놓는다 |
 | `SILLOG_TRANSCRIBE_TRACE` | 개발용 받아쓰기 진단: `<녹음 파일>|<적을 파일>`. 앱과 같은 방식으로 받아쓰며 인식기 결과(마지막 결과·발화 끝 표시·끝 시각·글)를 하나하나 적고 끝난다. 음성 인식 권한이 앱 번들에만 있어 `open -n SILLOG.app --env 'SILLOG_TRANSCRIBE_TRACE=…'` 로 띄운다. `SILLOG_TRANSCRIBE_ENGINE=apple` 이면 애플 음성 인식으로(기본은 Whisper 로 파일 전체), `SILLOG_TRANSCRIBE_GAIN=2` 로 애플 인식의 키울 배수를 직접 정할 수 있다. `SILLOG_TRANSCRIBE_ENGINE=live` 면 파일을 녹음기처럼 흘려보내며 녹음 중 미리 받아쓰기를 하고 끝난 뒤 글이 나오기까지 걸린 시간을 적는다(`SILLOG_TRANSCRIBE_SPEED=8` 로 8배 빨리) |
 | (숨은 설정 `frameLog`) | `defaults write com.sillog.app frameLog -bool true` 면 화면 갱신마다 메인 스레드가 늦은 프레임을 재서, 늦은 프레임이 있던 1초마다 화면 이름과 함께 app.log 에 `프레임 기록 자료 > 파일: 120장 중 늦음 3 (많이 늦음 1), 가장 긴 간격 40ms` 처럼 남긴다. 앱을 다시 켜야 적용, `defaults delete … frameLog` 로 끈다 |
+| `SILLOG_LAYA_URL` | Laya 분류기 주소. 기본값 `http://127.0.0.1:8766/v1/privacy` |
 | `SILLOG_TAB` | 시작 탭: `graph`, `chat`, `records`(기록 자료), `calendar`, `settings`. `files`, `history`(지난 기록), `library` 는 기록 자료의 그 구역으로, `activity` 는 설정의 활동 로그로 연다 (업무 목록은 그래프 탭에만 있다) |
+
+## Laya 민감정보 분류기
+
+AJOU-SILLOG은 정리 배치가 모델을 부르기 전에 화면 기록을 Laya v4(`laya-multilingual` 미세조정, 기준값 0.8)로 판정합니다. 앱은 `LayaClient`로 로컬 서버를 부르고, 서버는 v4 평가 코드(`predict_sp.py`)와 같은 방식으로 기록을 512토큰 창으로 나눠 창별 `1 - P(none)`의 최댓값을 돌려줍니다.
+
+```bash
+pip install torch transformers safetensors huggingface_hub
+hf auth login                       # 처음 한 번. 모델 저장소에 초대된 계정으로
+python3 scripts/laya/serve.py       # 처음 실행 때 모델을 받아 Hugging Face 캐시에 둠
+```
+
+- 모델(약 650MB)은 저장소에 넣지 않고 비공개 Hugging Face 저장소 [`beaver-zip/sillog-guard`](https://huggingface.co/beaver-zip/sillog-guard)에 둡니다. 받으려면 저장소 주인에게 초대를 받아야 합니다. 로그인 대신 `HF_TOKEN` 환경변수를 써도 되고, 받아 둔 폴더가 있으면 `--model <폴더>`로 바로 씁니다.
+- 앱 설정의 업무 정리 → "민감한 화면 거르기"는 기본으로 꺼져 있습니다. 서버를 띄운 뒤 켜세요. 켠 상태에서 서버가 없으면 정리 배치가 실패하고 다시 시도합니다. `sillogctl batch`와 `rejudge`는 `--laya`를 줄 때만 씁니다.
+- 질문 문구는 `scripts/laya/questions.json`이고 학습 때와 같습니다.
+- 앱은 식별자를 v4 학습 마스커와 같은 한국어 자리표시자(`[전화번호]`, `[주민번호]` 등)로 가린 뒤 보냅니다. 규칙은 `PIIMasker`를 쓰므로 학습 마스커(`mask.py`)와 완전히 같지는 않습니다.
+- CPU에서 기록 하나에 약 1초 걸립니다. `--device mps`는 macOS 27 + torch 2.10에서 첫 요청에 멈춰 기본값이 아닙니다.
+- 판정한 관측 행은 `observations.sensitive = 1`로 남고 채팅 검색(`ContextSearch`)에서 빠집니다. AI 도구 대화와 녹음은 판정하지 않습니다.
 
 ## 테스트와 CLI
 

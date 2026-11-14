@@ -104,7 +104,7 @@ extension AppState {
 
         let now = Date().timeIntervalSince1970
         let index = await currentFolderIndex()
-        let observations = (try? store.recent(limit: 120)) ?? []
+        let observations = await withoutSensitive((try? store.recent(limit: 120)) ?? [], since: now - 600)
         let recentTitles = Self.recentContext(from: observations, since: now - 600)
         // 받기 직전 화면의 텍스트 (강의 사이트라면 과목명·주차가 여기에 있다)
         let screenText: String? = observations.first { $0.ts >= now - 600 && $0.textId != nil }
@@ -146,6 +146,19 @@ extension AppState {
     }
 
     /// 최근 창 제목과 주소(호스트+경로 앞부분). 같은 것은 한 번만.
+    /// Returns: the observations since `since` that Laya does not flag; none when Laya cannot score them, so a suggestion never leaks a sensitive screen.
+    func withoutSensitive(_ observations: [Observation], since: Double) async -> [Observation] {
+        let window = observations.filter { $0.ts >= since }
+        guard settings.layaFilter, let db, !window.isEmpty else { return window }
+        do {
+            let flagged = try await LayaClient().sensitiveIDs(window, db: db)
+            return window.filter { !($0.id.map(flagged.contains) ?? false) }
+        } catch {
+            AppLog.write("Laya 실패, 제안에 화면 기록을 쓰지 않음: \(error)")
+            return []
+        }
+    }
+
     static func recentContext(from observations: [Observation], since: Double) -> [String] {
         var seen = Set<String>(), result: [String] = []
         for observation in observations where observation.ts >= since {

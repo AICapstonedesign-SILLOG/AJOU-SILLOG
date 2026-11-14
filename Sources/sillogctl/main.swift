@@ -16,7 +16,7 @@ sillogctl [--db PATH] <command>
   codex-status | codex-logout           로그인 상태 확인 / 로그아웃
   codex-models                          로그인한 계정에서 쓸 수 있는 모델 목록
   codex-usage                           구독 한도 대비 Codex 사용률 (5시간 창, 주간 창)
-  batch [--provider codex|openai] [--model M] [--base-url URL] [--api-key K] [--force] [--all] [--demo-llm]
+  batch [--provider codex|openai] [--model M] [--base-url URL] [--api-key K] [--force] [--all] [--demo-llm] [--laya]
                                         미처리 행을 LLM 으로 온톨로지화한다
                                         (--demo-llm: 모델 없이 데모 시드를 규칙으로 분류하는 가짜 LLM)
   llm-test [--provider codex|openai] [--model M] [--base-url URL]
@@ -59,7 +59,7 @@ sillogctl [--db PATH] <command>
   erase-theme 분야이름 [--yes]          그 분야의 업무를 원시 기록·화면 카드·요약까지 지운다 (기본은 세기만, --yes 는 앱을 끄고. 지운 뒤 VACUUM)
   erase-node 종류 키 [--yes]            노드 하나를 하위 노드·원시 기록까지 지운다 (종류: Session, Resource, App, Topic …. 기본은 세기만)
   weekly-review                          정리 제안(하루 한 번)을 만들어 보여 준다 (반영하지 않음. LLM 호출 2번)
-  rejudge ID [ID…]                      배치들의 행을 지금 규칙으로 다시 판정해 기록을 바꾸고 세션을 다시 계산한다 (카드는 연결된 것을 쓴다. 앱을 끄고 실행)
+  rejudge ID [ID…] [--laya]             배치들의 행을 지금 규칙으로 다시 판정해 기록을 바꾸고 세션을 다시 계산한다 (카드는 연결된 것을 쓴다. 앱을 끄고 실행)
   gold-candidates --from YYYY-MM-DD [--to YYYY-MM-DD] [--limit N] [--model M] [--reasoning high] [--out FILE]
                                         정답 세트 재료: 그 기간 배치의 행을 앱과 같은 방식으로 다시 만들어 판정만 받고(기록 안 함),
                                         지금 판정과 행마다 비교해 쓴다 (기본: 데이터 폴더/eval/gold-candidates.json)
@@ -454,6 +454,8 @@ do {
         // 데모 LLM 은 한 번 호출 형식으로만 답하고 분야 도구·일정 찾기는 모른다
         if demo { batchConfig.pipeline = .single; batchConfig.themes = false; batchConfig.findEvents = false }
         let batcher = OntologyBatcher(db: db, llm: client, config: batchConfig)
+        // Opt-in like the app setting: a real model then only sees screens Laya let through.
+        if !demo && flag("--laya") { await batcher.setPrivacyFilter(LayaClient()) }
         var round = 0
         repeat {
             round += 1
@@ -928,6 +930,7 @@ do {
         var rejudgeConfig = BatchConfig()
         rejudgeConfig.findEvents = false                 // 지난 행을 다시 판정할 뿐: 일정은 처음 정리할 때 이미 찾았다
         let batcher = OntologyBatcher(db: db, llm: makeClient().client, config: rejudgeConfig)
+        if flag("--laya") { await batcher.setPrivacyFilter(LayaClient()) }
         var round = 0
         while round < 20, let oldest = try store.oldestUnprocessedTs(), oldest <= lastTs {
             round += 1

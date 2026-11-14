@@ -366,6 +366,10 @@ public final class SillogDatabase: @unchecked Sendable {
             // Orphan-text cleanup checks every deleted snapshot against observations; without this it scans the table each time.
             try db.execute(sql: "CREATE INDEX idx_observations_text ON observations(text_id)")
         }
+        migrator.registerMigration("v23-sensitive-observations") { db in
+            // Set when Laya finds the screen sensitive; chat search skips these rows.
+            try db.execute(sql: "ALTER TABLE observations ADD COLUMN sensitive INTEGER NOT NULL DEFAULT 0")
+        }
         return migrator
     }
 }
