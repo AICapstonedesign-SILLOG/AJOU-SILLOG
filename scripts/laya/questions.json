@@ -1,0 +1,15 @@
+{
+  "privacy": {
+    "type": "choice",
+    "instructions": "이 화면 기록에 사용자 본인이나 특정 개인의 비공개 민감 정보가 있다면 어느 범주인가?",
+    "criteria": {
+      "none": "없음 (공개 정보, 일반 화면, 업무 조율)",
+      "health": "건강·의료",
+      "finance": "개인 금융 사정",
+      "private_life": "사생활·개인 신상",
+      "belief": "신념·성향",
+      "legal": "법적 문제",
+      "work_confidential": "업무 기밀"
+    }
+  }
+}
