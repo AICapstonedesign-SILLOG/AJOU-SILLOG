@@ -131,7 +131,7 @@
       "app": "Google Chrome",
       "bundle": "com.google.Chrome",
       "title": "hw3 제출물 목록 - LMS",
-      "uri": "https://lms.example.ac.kr/course/db2026/assign/3/submissions",
+      "uri": "https://lms.example.com/course/db2026/assign/3/submissions",
       "type": "WebPage",
       "text": "제출 42건 미제출 3건",
       "expect": {
@@ -270,7 +270,7 @@
       "app": "Google Chrome",
       "bundle": "com.google.Chrome",
       "title": "로그인 - LMS",
-      "uri": "https://lms.example.ac.kr/login",
+      "uri": "https://lms.example.com/login",
       "type": "WebPage",
       "text": "아이디 비밀번호",
       "expect": {
