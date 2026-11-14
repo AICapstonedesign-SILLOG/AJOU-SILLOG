@@ -4,7 +4,7 @@
 
 [![macOS 14+](https://img.shields.io/badge/macOS-14%2B-black?logo=apple)](#requirements)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
-[![CI](https://github.com/sillog-admin/SILLOG/actions/workflows/ci.yml/badge.svg)](https://github.com/sillog-admin/SILLOG/actions/workflows/ci.yml)
+[![CI](https://github.com/AICapstonedesign-SILLOG/AJOU-SILLOG/actions/workflows/ci.yml/badge.svg)](https://github.com/AICapstonedesign-SILLOG/AJOU-SILLOG/actions/workflows/ci.yml)
 
 <a href="https://github.com/sillog-admin/sillog/releases/latest/download/SILLOG.dmg"><img src="docs/readme/btn-download-en-v2.png" height="40" alt="Download for macOS"></a>&nbsp;
 <a href="https://sillog.app"><img src="docs/readme/btn-site-v2.png" height="40" alt="sillog.app"></a>&nbsp;
@@ -103,6 +103,8 @@ All records are stored in SQLite on your Mac. The only things that leave it are 
 - To chat through your ChatGPT subscription, the [Codex app or Codex CLI](https://developers.openai.com/codex) must be installed. You can use any OpenAI-compatible API server instead.
 
 ### Download
+
+> This repository is AJOU-SILLOG, the Ajou University capstone build. The dmg below is open-source SILLOG, without the Ajou LLM API option or the Laya classifier. Build AJOU-SILLOG [from source](#build-from-source).
 
 1. On [sillog.app](https://sillog.app), click **Download for macOS**. This downloads `SILLOG.dmg` from the [latest GitHub release](https://github.com/sillog-admin/SILLOG/releases/latest).
 2. Open the dmg and drag SILLOG to Applications.
@@ -225,8 +227,8 @@ You need Xcode 26 (Swift 6.2). Command Line Tools can build the app but can't ru
 Estimated time: about 2 minutes
 
 ```bash
-git clone https://github.com/sillog-admin/SILLOG.git
-cd SILLOG
+git clone https://github.com/AICapstonedesign-SILLOG/AJOU-SILLOG.git
+cd AJOU-SILLOG
 ./scripts/make-app.sh
 open build/AJOU-SILLOG.app
 ```

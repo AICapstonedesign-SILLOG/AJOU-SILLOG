@@ -4,7 +4,7 @@
 
 [![macOS 14+](https://img.shields.io/badge/macOS-14%2B-black?logo=apple)](#준비할-것)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
-[![CI](https://github.com/sillog-admin/SILLOG/actions/workflows/ci.yml/badge.svg)](https://github.com/sillog-admin/SILLOG/actions/workflows/ci.yml)
+[![CI](https://github.com/AICapstonedesign-SILLOG/AJOU-SILLOG/actions/workflows/ci.yml/badge.svg)](https://github.com/AICapstonedesign-SILLOG/AJOU-SILLOG/actions/workflows/ci.yml)
 
 <a href="https://github.com/sillog-admin/sillog/releases/latest/download/SILLOG.dmg"><img src="docs/readme/btn-download-ko-v2.png" height="40" alt="macOS용 다운로드"></a>&nbsp;
 <a href="https://sillog.app"><img src="docs/readme/btn-site-v2.png" height="40" alt="sillog.app"></a>&nbsp;
@@ -101,6 +101,8 @@ SILLOG은 자체 서버를 두지 않아요. 업무 정리와 채팅은 내가 �
 - ChatGPT 구독으로 채팅하려면 [Codex 앱이나 Codex CLI](https://developers.openai.com/codex)가 설치되어 있어야 합니다. OpenAI 호환 API 서버를 연결해서 써도 됩니다.
 
 ### 다운로드
+
+> 이 저장소는 아주대학교 캡스톤디자인 제출용 AJOU-SILLOG입니다. 아래 dmg는 오픈소스 SILLOG이라 아주대 LLM API 선택지와 Laya 분류기가 없습니다. AJOU-SILLOG은 [소스에서 빌드](#소스에서-빌드하기)해 주세요.
 
 1. [sillog.app](https://sillog.app)에서 **macOS용 다운로드**를 누릅니다. GitHub [최신 릴리스](https://github.com/sillog-admin/SILLOG/releases/latest)의 `SILLOG.dmg`가 받아집니다.
 2. dmg를 열고 SILLOG을 응용 프로그램 폴더로 옮깁니다.
@@ -223,8 +225,8 @@ Xcode 26(Swift 6.2)이 필요합니다. Command Line Tools만 있으면 빌드�
 예상 소요 시간: 약 2분
 
 ```bash
-git clone https://github.com/sillog-admin/SILLOG.git
-cd SILLOG
+git clone https://github.com/AICapstonedesign-SILLOG/AJOU-SILLOG.git
+cd AJOU-SILLOG
 ./scripts/make-app.sh
 open build/AJOU-SILLOG.app
 ```
