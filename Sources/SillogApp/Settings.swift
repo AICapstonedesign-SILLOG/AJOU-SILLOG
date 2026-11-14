@@ -4,7 +4,7 @@ import SillogCore
 
 /// 사용자 설정. UserDefaults 에 JSON 한 덩어리로 저장한다.
 struct AppSettings: Codable, Equatable {
-    /// "codex" = 앱 안에서 ChatGPT 로그인 후 직접 호출, "openai" = OpenAI 호환 서버(gpt-proxy, Ollama 등)
+    /// "codex" = ChatGPT login, "ajou" = Ajou LLM gateway (fixed address, own key and model), "openai" = any OpenAI-compatible server
     var llmProvider = "codex"
     /// ChatGPT 로그인 방식에서 쓸 모델. 계정마다 가능한 모델이 달라 설정 화면에서 목록을 받아 고른다.
     var codexModel = CodexResponsesClient.defaultModel
@@ -24,7 +24,7 @@ struct AppSettings: Codable, Equatable {
     var chatInstructions = ""
     /// Stored as "gpt" / "jev" / "decisions"; read through `judgeChoice`.
     var judgeProvider = "gpt"
-    /// For the gpt judge: "codex", "openai" (the shared API server) or "custom" (its own URL and key).
+    /// For the gpt judge: "codex", "ajou", "openai" (the shared API server) or "custom" (its own URL and key).
     var judgeGPTProvider = "codex"
     var judgeCodexModel = CodexResponsesClient.defaultModel
     var judgeBaseURL = "http://localhost:5010/v1"
@@ -32,6 +32,11 @@ struct AppSettings: Codable, Equatable {
     var judgeAPIKey = ""
     var jevAPIKey = ""
     var decisionsAPIKey = ""
+    /// Ajou LLM keeps its own key and models so switching connections never wipes them.
+    var ajouAPIKey = ""
+    var ajouModel = AppSettings.ajouDefaultModel
+    var chatAjouModel = AppSettings.ajouDefaultModel
+    var judgeAjouModel = AppSettings.ajouDefaultModel
     /// 채팅 모델을 정리 모델과 같게 쓴다(기본). 끄면 chatProvider 와 채팅 모델을 따로 고른다
     var chatSameAsOrganize = true
     var batchEnabled = true
@@ -80,19 +85,33 @@ struct AppSettings: Codable, Equatable {
         let oldJudge = try c.decodeIfPresent(String.self, forKey: .judgeProvider) ?? "gpt"
         judgeProvider = ["jev", "decisions"].contains(oldJudge) ? oldJudge : "gpt"
         judgeGPTProvider = try c.decodeIfPresent(String.self, forKey: .judgeGPTProvider) ?? llmProvider
+        // The old Ajou judge called the gateway's decisions route, which only the GPT judge path reaches now.
+        if oldJudge == "ajou" { judgeGPTProvider = "ajou" }
         judgeCodexModel = try c.decodeIfPresent(String.self, forKey: .judgeCodexModel) ?? codexModel
         judgeBaseURL = try c.decodeIfPresent(String.self, forKey: .judgeBaseURL) ?? llmBaseURL
         judgeAPIModel = try c.decodeIfPresent(String.self, forKey: .judgeAPIModel) ?? llmModel
         judgeAPIKey = try c.decodeIfPresent(String.self, forKey: .judgeAPIKey) ?? llmAPIKey
         jevAPIKey = try c.decodeIfPresent(String.self, forKey: .jevAPIKey) ?? d.jevAPIKey
         decisionsAPIKey = try c.decodeIfPresent(String.self, forKey: .decisionsAPIKey) ?? d.decisionsAPIKey
+        ajouAPIKey = try c.decodeIfPresent(String.self, forKey: .ajouAPIKey) ?? d.ajouAPIKey
+        ajouModel = try c.decodeIfPresent(String.self, forKey: .ajouModel) ?? d.ajouModel
+        chatAjouModel = try c.decodeIfPresent(String.self, forKey: .chatAjouModel) ?? ajouModel
+        judgeAjouModel = try c.decodeIfPresent(String.self, forKey: .judgeAjouModel) ?? ajouModel
+        // Ajou keys once saved as a plain API server move to the Ajou connection. Only old plaintext saves carry the key here;
+        // a Keychain-era save has it blank, and moving that would leave the Ajou connection without a key.
+        if llmProvider == "openai", !llmAPIKey.isEmpty, llmBaseURL.trimmingCharacters(in: .whitespaces) == Self.ajouBaseURL {
+            llmProvider = "ajou"; ajouModel = llmModel; ajouAPIKey = llmAPIKey; llmBaseURL = d.llmBaseURL; llmAPIKey = ""
+        }
+        if chatProvider == "openai", !chatAPIKey.isEmpty, chatBaseURL.trimmingCharacters(in: .whitespaces) == Self.ajouBaseURL {
+            chatProvider = "ajou"; chatAjouModel = chatModel; if ajouAPIKey.isEmpty { ajouAPIKey = chatAPIKey }; chatBaseURL = d.chatBaseURL; chatAPIKey = ""
+        }
         // Before "custom" existed, an API judge always had its own address and key.
         if judgeGPTProvider == "openai", (judgeBaseURL, judgeAPIKey) != (llmBaseURL, llmAPIKey) { judgeGPTProvider = "custom" }
         // 예전 사용자는 채팅을 따로 골라 두었을 수 있다: 저장값이 없으면 정리와 채팅 설정이 이미 같을 때만 '같게'로 본다
         chatSameAsOrganize = try c.decodeIfPresent(Bool.self, forKey: .chatSameAsOrganize)
             ?? (chatProvider == llmProvider && chatCodexModel == codexModel && chatModel == llmModel)
         // 지금 쓰지 않는 연결 방식이 저장돼 있으면 ChatGPT 로그인으로 돌린다
-        let known = ["codex", "openai"]
+        let known = ["codex", "ajou", "openai"]
         if !known.contains(llmProvider) { llmProvider = "codex" }
         if !known.contains(chatProvider) { chatProvider = "codex" }
         if !(known + ["custom"]).contains(judgeGPTProvider) { judgeGPTProvider = "codex" }
@@ -118,7 +137,7 @@ struct AppSettings: Codable, Equatable {
     /// API keys go to the Keychain; the UserDefaults JSON keeps them blank.
     private static let secrets: [(account: String, field: WritableKeyPath<AppSettings, String>)] = [
         ("settings.llm", \.llmAPIKey), ("settings.chat", \.chatAPIKey), ("settings.judge", \.judgeAPIKey),
-        ("settings.jev", \.jevAPIKey), ("settings.decisions", \.decisionsAPIKey),
+        ("settings.jev", \.jevAPIKey), ("settings.decisions", \.decisionsAPIKey), ("settings.ajou", \.ajouAPIKey),
     ]
 
     /// The Dock setting alone, read without the Keychain: launch needs it before AppState loads the full settings,
@@ -167,15 +186,17 @@ struct AppSettings: Codable, Equatable {
     var effectiveChatProvider: String { chatSameAsOrganize ? llmProvider : chatProvider }
     var chatUsesAPI: Bool { effectiveChatProvider != "codex" }
     /// API 로 갈 때 실제로 쓰는 주소, 모델, 키
-    var llmEndpoint: (url: String, model: String, key: String) { (llmBaseURL, llmModel, llmAPIKey) }
+    var llmEndpoint: (url: String, model: String, key: String) {
+        llmProvider == "ajou" ? (Self.ajouBaseURL, ajouModel, ajouAPIKey) : (llmBaseURL, llmModel, llmAPIKey)
+    }
     var chatEndpoint: (url: String, model: String, key: String) {
         if chatSameAsOrganize { return llmEndpoint }
-        return (chatBaseURL, chatModel, chatAPIKey)
+        return chatProvider == "ajou" ? (Self.ajouBaseURL, chatAjouModel, ajouAPIKey) : (chatBaseURL, chatModel, chatAPIKey)
     }
     /// Chat picks its own connection and model now; a save that followed organize starts from the same values.
     mutating func splitChatFromOrganize() {
         if chatSameAsOrganize {
-            chatProvider = llmProvider; chatCodexModel = codexModel; chatModel = llmModel
+            chatProvider = llmProvider; chatCodexModel = codexModel; chatModel = llmModel; chatAjouModel = ajouModel
             chatSameAsOrganize = false
         }
         // Organize and chat share one API server.
@@ -192,9 +213,12 @@ struct AppSettings: Codable, Equatable {
     }
     static let jevSite = URL(string: "https://typesafe.ai")!
     static let openAIKeySite = URL(string: "https://platform.openai.com/api-keys")!
+    static let ajouBaseURL = "https://factchat-cloud.mindlogic.ai/v1/gateway"
+    static let ajouDefaultModel = "gpt-6.1-sol"
+    static let ajouSite = URL(string: "https://ajoullm.ajou.ac.kr")!
 
     enum JudgeChoice: String, CaseIterable {
-        case codex, api, customAPI, jev, decisions
+        case codex, ajou, api, customAPI, jev, decisions
     }
 
     var judgeChoice: JudgeChoice {
@@ -204,6 +228,7 @@ struct AppSettings: Codable, Equatable {
             case "decisions": return .decisions
             default:
                 switch judgeGPTProvider {
+                case "ajou": return .ajou
                 case "openai": return .api
                 case "custom": return .customAPI
                 default: return .codex
@@ -213,13 +238,15 @@ struct AppSettings: Codable, Equatable {
         set {
             switch newValue {
             case .jev, .decisions: judgeProvider = newValue == .jev ? "jev" : "decisions"
-            case .codex, .api, .customAPI:
+            case .codex, .ajou, .api, .customAPI:
                 judgeProvider = "gpt"
-                judgeGPTProvider = [.codex: "codex", .api: "openai", .customAPI: "custom"][newValue]!
+                judgeGPTProvider = [.codex: "codex", .ajou: "ajou", .api: "openai", .customAPI: "custom"][newValue]!
             }
         }
     }
-    static func providerName(_ provider: String) -> String { provider == "openai" ? "API" : tr("ChatGPT 구독") }
+    static func providerName(_ provider: String) -> String {
+        ["openai": "API", "ajou": tr("아주대 LLM API")][provider] ?? tr("ChatGPT 구독")
+    }
 }
 
 extension UserDefaults {

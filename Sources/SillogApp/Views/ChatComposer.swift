@@ -689,12 +689,15 @@ struct ChatComposer: View {
 
     private var connectHost: String { URL(string: state.settings.chatEndpoint.url)?.host?.lowercased() ?? "" }
     private var connectLabel: String {
+        if state.settings.effectiveChatProvider == "ajou" { return tr("아주대 LLM API") }
         return connectHost.contains("anthropic") ? "Claude API" : "API"
     }
 
     @ViewBuilder private func providerLogo(_ provider: String, claude: Bool = false) -> some View {
         if provider == "codex", let mark = Brand.openAIMark {
             Image(nsImage: mark).renderingMode(.template).resizable().scaledToFit().foregroundStyle(Color(hex: 0x4A3E37))
+        } else if provider == "ajou", let emblem = Brand.ajouEmblem {
+            Image(nsImage: emblem).resizable().interpolation(.high).scaledToFit().clipShape(Circle())
         } else if claude {
             SVGIcon(d: Brand.claudePath).fill(Color(hex: 0xD97757))
         } else {
@@ -734,7 +737,8 @@ struct ChatComposer: View {
         let current = state.settings.effectiveChatProvider
         return VStack(alignment: .leading, spacing: 0) {
             connectRow(tr("ChatGPT 구독"), "codex", on: current == "codex")
-            connectRow("API", "openai", on: current != "codex")
+            connectRow(tr("아주대 LLM API"), "ajou", on: current == "ajou")
+            connectRow("API", "openai", on: current == "openai")
         }
         .padding(6).frame(width: 190)
     }

@@ -363,6 +363,10 @@ final class AppState: ObservableObject {
         })
     }
 
+    static func ajouClient(model: String, key: String) -> OpenAICompatClient {
+        OpenAICompatClient(baseURL: URL(string: AppSettings.ajouBaseURL)!, model: model, apiKey: key)
+    }
+
     private func makeOpenAIClient() -> OpenAICompatClient {
         let e = settings.llmEndpoint
         let url = URL(string: e.url.trimmingCharacters(in: .whitespaces)) ?? URL(string: "http://localhost:5010/v1")!
@@ -394,6 +398,9 @@ final class AppState: ObservableObject {
             return .choice(DecisionsClient(key: s.decisionsAPIKey))
         case .codex:
             return .gpt(CodexResponsesClient(auth: codexAuth, model: s.judgeCodexModel, reasoningEffort: "medium"))
+        case .ajou:
+            guard !s.ajouAPIKey.isEmpty else { return .unavailable(tr("아주대 LLM API 키를 설정해 주세요.")) }
+            return .gpt(Self.ajouClient(model: s.judgeAjouModel, key: s.ajouAPIKey))
         case .api, .customAPI:
             let (address, key) = s.judgeChoice == .api ? (s.llmBaseURL, s.llmAPIKey) : (s.judgeBaseURL, s.judgeAPIKey)
             guard let url = URL(string: address.trimmingCharacters(in: .whitespacesAndNewlines)),
@@ -422,6 +429,8 @@ final class AppState: ObservableObject {
 
     /// False only when a send cannot work; a failed model check is not, since it may be transient and is not retried.
     var chatConnected: Bool {
+        // The Ajou gateway has a fixed address, so only its key says whether a send can work.
+        if settings.effectiveChatProvider == "ajou" { return !settings.ajouAPIKey.isEmpty }
         if settings.chatUsesAPI {
             let endpoint = settings.chatEndpoint     // an API key is optional for local servers
             return !endpoint.url.trimmingCharacters(in: .whitespaces).isEmpty && !endpoint.model.trimmingCharacters(in: .whitespaces).isEmpty
@@ -774,11 +783,11 @@ final class AppState: ObservableObject {
 
     func testLLM() async { await testConnection(settings.llmProvider) }
 
-    /// Sends a small test call over one connection; "openai" is the API server, anything else the ChatGPT login.
+    /// Sends a small test call over one connection; "openai" is the API server, "ajou" the Ajou gateway, anything else the ChatGPT login.
     func testConnection(_ provider: String) async {
         connectionChecks[provider] = .checking
-        if provider == "openai" {
-            let client = makeOpenAIClient()
+        if provider == "openai" || provider == "ajou" {
+            let client = provider == "ajou" ? Self.ajouClient(model: settings.ajouModel, key: settings.ajouAPIKey) : makeOpenAIClient()
             let reachable = await client.ping()
             switch await client.selfTest() {
             case .success(let message): connectionChecks[provider] = .ok(tr("연결됨. \(message)"))

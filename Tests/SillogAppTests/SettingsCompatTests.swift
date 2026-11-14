@@ -34,6 +34,17 @@ final class SettingsCompatTests: XCTestCase {
         XCTAssertEqual(same.judgeChoice, .api)
     }
 
+    func testOldAjouSettingsKeepTheAjouConnection() throws {
+        let judge = try decode(#"{"llmProvider":"ajou","ajouAPIKey":"ak","judgeProvider":"ajou"}"#)
+        XCTAssertEqual(judge.judgeChoice, .ajou)
+        let plain = try decode(#"{"llmProvider":"openai","llmBaseURL":"https://factchat-cloud.mindlogic.ai/v1/gateway","llmModel":"m","llmAPIKey":"ak"}"#)
+        XCTAssertEqual(plain.llmProvider, "ajou")
+        XCTAssertEqual(plain.ajouAPIKey, "ak")
+        XCTAssertEqual(plain.ajouModel, "m")
+        let keychain = try decode(#"{"llmProvider":"openai","llmBaseURL":"https://factchat-cloud.mindlogic.ai/v1/gateway","llmModel":"m","llmAPIKey":""}"#)
+        XCTAssertEqual(keychain.llmProvider, "openai", "the key is in the Keychain under settings.llm, so the connection stays")
+    }
+
     func testJudgeChoiceRoundTrips() throws {
         var s = AppSettings()
         for choice in AppSettings.JudgeChoice.allCases {

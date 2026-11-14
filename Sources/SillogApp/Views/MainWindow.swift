@@ -123,14 +123,17 @@ private struct TitleBarBrand: View {
 struct TitleConnection: View {
     @EnvironmentObject private var state: AppState
     private var compat: Bool { state.settings.chatUsesAPI }
+    private var ajou: Bool { state.settings.effectiveChatProvider == "ajou" }
     private var host: String { URL(string: state.settings.chatEndpoint.url)?.host?.lowercased() ?? "" }
     private var plan: String? { if case .loggedIn(_, let plan, _) = state.codexStatus, let plan, !plan.isEmpty { return plan }; return nil }
     private var label: String {
+        if ajou { return tr("아주대 LLM API") }
         if !compat { return plan.map { "ChatGPT \($0.prefix(1).uppercased() + $0.dropFirst())" } ?? "ChatGPT" }
         if host.contains("anthropic") { return "Claude API" }
         return "API"
     }
     private var connected: Bool {
+        if ajou { return !state.settings.ajouAPIKey.isEmpty }
         if compat { return !state.settings.chatBaseURL.isEmpty }
         if case .loggedIn = state.codexStatus { return true }
         return false
@@ -150,7 +153,9 @@ struct TitleConnection: View {
     }
 
     @ViewBuilder private var logo: some View {
-        if !compat, let mark = Brand.openAIMark {
+        if ajou, let emblem = Brand.ajouEmblem {
+            Image(nsImage: emblem).resizable().scaledToFit()
+        } else if !compat, let mark = Brand.openAIMark {
             Image(nsImage: mark).renderingMode(.template).resizable().scaledToFit().foregroundStyle(Color(hex: 0x4A3E37))
         } else if compat, host.contains("anthropic") {
             SVGIcon(d: Brand.claudePath).fill(Color(hex: 0xD97757))

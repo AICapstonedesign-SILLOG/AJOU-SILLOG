@@ -79,7 +79,7 @@ private struct ArtImage: View {
 // MARK: 온보딩 시트
 
 /// 1단계(로그인)의 화면. 앞의 셋은 AI 연결 고르기와 연결 방법별 화면, 뒤의 둘은 연결된 뒤에 거치는 판단 모델 고르기와 그 연결 화면
-private enum LoginMethod { case choose, chatgpt, apiKey, judge, judgeJev, judgeDecisions }
+private enum LoginMethod { case choose, chatgpt, ajou, apiKey, judge, judgeJev, judgeDecisions }
 
 struct OnboardingSheet: View {
     @EnvironmentObject private var state: AppState
@@ -88,6 +88,7 @@ struct OnboardingSheet: View {
     @State private var apiURL = ""
     @State private var apiModel = ""
     @State private var apiKey = ""
+    @State private var ajouKey = ""
     @State private var judgeJevKey = ""
     @State private var judgeDecisionsKey = ""
     @State private var testing = false
@@ -97,10 +98,11 @@ struct OnboardingSheet: View {
     private let poll = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     private var connected: Bool { state.phase != .login }
 
-    /// SILLOG_ONBOARDING=chatgpt|apikey|judge|jev 로 그 화면에서 시작한다 (개발, 스크린샷용)
+    /// SILLOG_ONBOARDING=chatgpt|ajou|apikey|judge|jev 로 그 화면에서 시작한다 (개발, 스크린샷용)
     private static let initialMethod: LoginMethod = {
         switch SillogEnv.value("ONBOARDING") {
         case "chatgpt": return .chatgpt
+        case "ajou": return .ajou
         case "apikey": return .apiKey
         case "judge": return .judge
         case "jev": return .judgeJev
@@ -145,6 +147,7 @@ struct OnboardingSheet: View {
             switch method {
             case .choose: choosePage
             case .chatgpt: chatgptPage
+            case .ajou: ajouPage
             case .apiKey: apiKeyPage
             case .judge: judgePage
             case .judgeJev: judgeJevPage
@@ -189,6 +192,9 @@ struct OnboardingSheet: View {
                 MethodTile(title: tr("ChatGPT 계정"), detail: tr("쓰던 ChatGPT 구독으로 연결해요")) {
                     ArtImage(name: "openai_logo", size: 72)
                 } action: { chooseChatGPT() }
+                MethodTile(title: tr("아주대 LLM API"), detail: tr("학교 계정으로 키를 받아요")) {
+                    ArtImage(name: "ajou_emblem", size: 72)
+                } action: { go(.ajou) }
                 MethodTile(title: tr("API 키"), detail: tr("가진 키를 붙여 넣어요")) {
                     Image(systemName: "link").font(.system(size: 62, weight: .regular)).foregroundStyle(OB.brown)
                         .frame(width: 72, height: 72)
@@ -307,7 +313,27 @@ struct OnboardingSheet: View {
         }
     }
 
-    // MARK: 3. API 키
+    // MARK: 3. 아주대 LLM API
+
+    private var ajouPage: some View {
+        VStack(spacing: 26) {
+            heading(tr("아주대 LLM API로 연결해요"), tr("학교 계정으로 키를 받아 붙여 넣으면 돼요."))
+            VStack(alignment: .leading, spacing: 14) {
+                ForEach(Array([tr("아주대 LLM 사이트에 학교 계정으로 로그인해요"), tr("개발자 메뉴의 API 키 탭에서 새 키를 만들어요"),
+                               tr("키는 한 번만 보여요. 바로 복사해요")].enumerated()), id: \.offset) { item in
+                    HStack(spacing: 14) {
+                        numberDot(item.offset + 1)
+                        Text(item.element).font(Brand.font(.sectionTitle)).foregroundStyle(Brand.text)
+                    }
+                }
+                keyField($ajouKey, placeholder: tr("복사한 API 키를 여기에 붙여 넣어요"), fill: .white, height: 56, radius: 18).shadow(color: OB.shadow, radius: 8, y: 3)
+            }
+            .frame(maxWidth: 760)
+            resultLine
+        }
+    }
+
+    // MARK: 4. API 키
 
     private var apiKeyPage: some View {
         VStack(spacing: 26) {
@@ -345,8 +371,12 @@ struct OnboardingSheet: View {
         testing = true; notice = nil
         let before = state.settings
         var next = before
-        next.llmProvider = "openai"; next.llmBaseURL = baseURL; next.llmModel = model; next.llmAPIKey = key
-        next.chatProvider = "openai"; next.chatBaseURL = baseURL; next.chatModel = model; next.chatAPIKey = key
+        if baseURL == AppSettings.ajouBaseURL {
+            next.llmProvider = "ajou"; next.chatProvider = "ajou"; next.ajouModel = model; next.chatAjouModel = model; next.ajouAPIKey = key
+        } else {
+            next.llmProvider = "openai"; next.llmBaseURL = baseURL; next.llmModel = model; next.llmAPIKey = key
+            next.chatProvider = "openai"; next.chatBaseURL = baseURL; next.chatModel = model; next.chatAPIKey = key
+        }
         state.settings = next
         Task {
             await state.testLLM()
@@ -365,7 +395,7 @@ struct OnboardingSheet: View {
         !apiURL.trimmingCharacters(in: .whitespaces).isEmpty && !apiModel.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
-    // MARK: 4. 판단 모델 고르기 (OUT-24~27)
+    // MARK: 5. 판단 모델 고르기 (OUT-24~27)
 
     private var judgePage: some View {
         VStack(spacing: 40) {
@@ -435,7 +465,7 @@ struct OnboardingSheet: View {
 
     private func trimmed(_ text: String) -> String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
 
-    // MARK: 5. 권한 허용
+    // MARK: 6. 권한 허용
 
     private var permissionPage: some View {
         let grants = state.permissionGrants
@@ -595,6 +625,13 @@ struct OnboardingSheet: View {
             case .chatgpt:
                 Button { openChatGPT() } label: { linkLabel(tr("ChatGPT 열기")) }.buttonStyle(OBButtonStyle(kind: .secondary))
                 Button(tr("연결 확인")) { confirmChatGPT() }.buttonStyle(OBButtonStyle(kind: .primary)).keyboardShortcut(.defaultAction)
+            case .ajou:
+                Button { NSWorkspace.shared.open(AppSettings.ajouSite) } label: { linkLabel(tr("아주대 LLM 열기")) }.buttonStyle(OBButtonStyle(kind: .secondary))
+                Button(tr("연결 확인")) {
+                    connect(baseURL: AppSettings.ajouBaseURL, model: AppSettings.ajouDefaultModel, key: trimmed(ajouKey))
+                }
+                .buttonStyle(OBButtonStyle(kind: .primary)).keyboardShortcut(.defaultAction)
+                .disabled(testing || trimmed(ajouKey).isEmpty)
             case .apiKey:
                 Button(tr("연결 확인")) {
                     connect(baseURL: apiURL.trimmingCharacters(in: .whitespaces), model: apiModel.trimmingCharacters(in: .whitespaces),
