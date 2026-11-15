@@ -30,6 +30,13 @@ INSTALLED_APP="$HOME/Applications/AJOU-SILLOG.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN_DIR/SillogApp" "$APP/Contents/MacOS/Sillog"
+# Command Line Tools 의 Swift Build 는 실행 파일에 SDK 버전을 최소 버전(14.0)으로 적는다. 그러면 macOS 26 이 옛 모양 창 머리(38pt)로 띄워
+# 녹음 단추가 끼인다. 실제로 쓴 SDK 버전으로 고쳐 적는다 (서명은 아래에서 다시 한다)
+SDK_VERSION="$(xcrun --show-sdk-version 2>/dev/null || true)"
+if [ -n "$SDK_VERSION" ] && command -v vtool >/dev/null; then
+  vtool -set-build-version macos 14.0 "$SDK_VERSION" -replace -output "$APP/Contents/MacOS/Sillog.tmp" "$APP/Contents/MacOS/Sillog" 2>/dev/null \
+    && mv "$APP/Contents/MacOS/Sillog.tmp" "$APP/Contents/MacOS/Sillog"
+fi
 cp -R "$ROOT/Sources/SillogApp/Resources/graph" "$APP/Contents/Resources/graph"
 cp -R "$ROOT/Sources/SillogApp/Resources/calendar" "$APP/Contents/Resources/calendar"   # 캘린더 화면 (FullCalendar 6, MIT)
 cp -R "$ROOT/Sources/SillogApp/Resources/mermaid" "$APP/Contents/Resources/mermaid"     # 채팅 다이어그램 (mermaid 11.4.1, MIT)
