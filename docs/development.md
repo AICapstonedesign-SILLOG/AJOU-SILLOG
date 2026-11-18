@@ -60,7 +60,8 @@ python3 scripts/laya/serve.py       # 처음 실행 때 모델을 받아 Hugging
 - 모델(약 650MB)은 저장소에 넣지 않고 비공개 Hugging Face 저장소 [`beaver-zip/sillog-guard`](https://huggingface.co/beaver-zip/sillog-guard)에 둡니다. 받으려면 저장소 주인에게 초대를 받아야 합니다. 로그인 대신 `HF_TOKEN` 환경변수를 써도 되고, 받아 둔 폴더가 있으면 `--model <폴더>`로 바로 씁니다.
 - 앱 설정의 업무 정리 → "민감한 화면 거르기"는 기본으로 꺼져 있습니다. 서버를 띄운 뒤 켜세요. 켠 상태에서 서버가 없으면 정리 배치가 실패하고 다시 시도합니다. `sillogctl batch`와 `rejudge`는 `--laya`를 줄 때만 씁니다.
 - 질문 문구는 `scripts/laya/questions.json`이고 학습 때와 같습니다.
-- 앱은 식별자를 v4 학습 마스커와 같은 한국어 자리표시자(`[전화번호]`, `[주민번호]` 등)로 가린 뒤 보냅니다. 규칙은 `PIIMasker`를 쓰므로 학습 마스커(`mask.py`)와 완전히 같지는 않습니다.
+- 앱은 식별자를 v4 학습 마스커와 같은 한국어 자리표시자(`[전화번호]`, `[주민번호]` 등)로 가린 뒤 보냅니다. 찾는 규칙은 외부 모델에 보낼 때와 같은 `PIIMasker`이고, 규칙 이름을 자리표시자로 바꾸는 표는 `LayaClient.tags`입니다.
+- 새로 학습하거나 평가할 기록은 `sillogctl mask IN.jsonl OUT.jsonl`로 가립니다. 앱이 Laya에 보낼 때와 똑같이 가리고 `evidence_spans` 위치도 옮기므로, 학습 입력과 앱 입력이 어긋나지 않습니다. v4는 예전 학습 마스커(`mask.py` v3c)로 가린 기록으로 학습했습니다.
 - CPU에서 기록 하나에 약 1초 걸립니다. `--device mps`는 macOS 27 + torch 2.10에서 첫 요청에 멈춰 기본값이 아닙니다.
 - 판정한 관측 행은 `observations.sensitive = 1`로 남고 채팅 검색(`ContextSearch`)에서 빠집니다. AI 도구 대화와 녹음은 판정하지 않습니다.
 

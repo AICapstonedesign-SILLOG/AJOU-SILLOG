@@ -125,21 +125,107 @@ public struct LayaClient: Sendable {
     nonisolated(unsafe) public static var enabled = false
 
     // The Korean placeholders of the v4 training masker (sillog_privacy/mask.py), so v4 sees the input it learned from.
-    private static let tags = ["private-key": "[개인키]", "api-key": "[API키]", "bearer": "[토큰]", "key-value": "[비밀값]", "email": "[이메일]",
-                               "iban": "[계좌번호]", "kr-account": "[계좌번호]", "card": "[카드번호]", "intl-phone": "[전화번호]",
-                               "kr-phone": "[전화번호]", "nanp-phone": "[전화번호]", "kr-rrn": "[주민번호]", "address": "[주소]"]
+    // Rules missing here are foreign IDs, which mask.py calls [식별번호].
+    static let tags = [
+        "private-key": "[개인키]", "api-key": "[API키]", "api-key-redacted": "[API키]", "jwt": "[토큰]", "bearer": "[비밀값]",
+        "url-secret": "[비밀값]", "console-id": "[비밀값]", "url-credentials": "[비밀값]", "key-value": "[비밀값]", "kr-key-value": "[비밀값]",
+        "otp": "[비밀값]", "otp-before": "[비밀값]", "tokenish": "[비밀값]",
+        "email": "[이메일]", "email-partial": "[이메일]", "handle": "[계정]", "labeled-handle": "[계정]", "mac-hostname": "[사용자]",
+        "iban": "[계좌번호]", "kr-account": "[계좌번호]", "kr-account-label": "[계좌번호]", "card": "[카드번호]", "card-partial": "[카드번호]",
+        "intl-phone": "[전화번호]", "kr-phone": "[전화번호]", "kr-phone-variant": "[전화번호]", "kr-phone-partial": "[전화번호]", "nanp-phone": "[전화번호]",
+        "kr-rrn": "[주민번호]", "kr-rrn-bare": "[주민번호]", "kr-driver": "[면허번호]", "kr-driver-bare": "[면허번호]", "kr-passport": "[여권번호]",
+        "birth-date": "[생년월일]", "ipv4": "[IP주소]", "ipv6": "[IP주소]", "labeled-id": "[식별번호]", "kr-member-id": "[식별번호]",
+        "kr-road-address": "[주소]", "kr-district-address": "[주소]", "kr-road-unit": "[주소]", "kr-jibun": "[주소]", "kr-apartment": "[주소]",
+        "kr-unit": "[주소]", "kr-road-number": "[주소]", "kr-zip": "[주소]", "address": "[주소]",
+    ]
+
+    private static let homeFolder = try! NSRegularExpression(pattern: #"(?:/Users/|/home/)([^/\s\[\]]+)"#)
 
     /// Args: text is any record field.
-    /// Returns: the text with identifiers, the home folder name and the account name replaced by v4's placeholders.
+    /// Returns: the text composed to NFC, with identifiers, the home folder name and the account name replaced by v4's placeholders.
     /// Masks even when the "개인정보 가리기" setting is off, because v4 only ever saw masked text.
     static func masked(_ text: String) -> String {
+        // Composed like PIIMasker.mask, so decomposed file names meet the Korean rules.
+        let text = text.precomposedStringWithCanonicalMapping
         let result = NSMutableString(string: text)
-        for item in PIIMasker.matches(in: text).sorted(by: { $0.range.location > $1.range.location }) {
-            result.replaceCharacters(in: item.range, with: tags[item.rule] ?? "[식별번호]")
+        for item in replacements(in: text).reversed() { result.replaceCharacters(in: item.range, with: item.tag) }
+        return result as String
+    }
+
+    /// Args: text is any record field.
+    /// Returns: the non-overlapping ranges `masked` replaces, in text order, each with its placeholder.
+    static func replacements(in text: String) -> [(range: NSRange, tag: String)] {
+        var found = PIIMasker.matches(in: text).map { (range: $0.range, tag: tags[$0.rule] ?? "[식별번호]") }
+        func claim(_ range: NSRange) {
+            guard range.length > 0, !found.contains(where: { NSIntersectionRange($0.range, range).length > 0 }) else { return }
+            found.append((range, "[사용자]"))
         }
-        var out = (result as String).replacingOccurrences(of: #"(/Users/|/home/)[^/\s\[\]]+"#, with: "$1[사용자]", options: .regularExpression)
-        for name in [NSFullUserName(), NSUserName()] where name.count >= 2 { out = out.replacingOccurrences(of: name, with: "[사용자]") }
+        let source = text as NSString
+        for match in homeFolder.matches(in: text, range: NSRange(location: 0, length: source.length)) { claim(match.range(at: 1)) }
+        for name in [NSFullUserName(), NSUserName()] where name.count >= 2 {
+            var from = 0
+            while case let range = source.range(of: name, range: NSRange(location: from, length: source.length - from)), range.location != NSNotFound {
+                claim(range)
+                from = NSMaxRange(range)
+            }
+        }
+        return found.sorted { $0.range.location < $1.range.location }
+    }
+
+    /// Args: record is one Laya training or evaluation record as JSON: window_title, url, doc_path and text, plus optional
+    ///   evidence_spans of {field, start, end, text} whose offsets count Unicode scalars, as Python does.
+    /// Returns: the record masked exactly as `Record` masks it for Laya, NFC included, with every evidence span moved onto the masked text.
+    ///   A span edge inside a masked value moves to the edge of its placeholder, so the span keeps the whole placeholder.
+    public static func maskedTrainingRecord(_ record: [String: Any]) -> [String: Any] {
+        var out = record, edits: [String: (raw: String, composed: String, found: [(range: NSRange, tag: String)])] = [:]
+        for field in ["window_title", "url", "doc_path", "text"] {
+            guard let raw = record[field] as? String else { continue }
+            let composed = raw.precomposedStringWithCanonicalMapping, found = replacements(in: composed), result = NSMutableString(string: composed)
+            for item in found.reversed() { result.replaceCharacters(in: item.range, with: item.tag) }
+            edits[field] = (raw, composed, found)
+            out[field] = result as String
+        }
+        guard let spans = record["evidence_spans"] as? [[String: Any]] else { return out }
+        out["evidence_spans"] = spans.map { span -> [String: Any] in
+            let field = span["field"] as? String ?? "text"
+            guard let edit = edits[field], let masked = out[field] as? String,
+                  let start = span["start"] as? Int, let end = span["end"] as? Int else { return span }
+            let from = moved(utf16(composedOffset(start, edit.raw), in: edit.composed), end: false, edit.found)
+            let to = max(from, moved(utf16(composedOffset(end, edit.raw), in: edit.composed), end: true, edit.found))
+            var span = span
+            span["start"] = scalars(from, in: masked)
+            span["end"] = scalars(to, in: masked)
+            span["text"] = (masked as NSString).substring(with: NSRange(location: from, length: to - from))
+            return span
+        }
         return out
+    }
+
+    // NFC merges jamo into syllables, so a scalar offset into the raw field becomes the length of its composed prefix.
+    private static func composedOffset(_ scalars: Int, _ raw: String) -> Int {
+        String(String.UnicodeScalarView(raw.unicodeScalars.prefix(max(scalars, 0)))).precomposedStringWithCanonicalMapping.unicodeScalars.count
+    }
+
+    // Python offsets count Unicode scalars and NSString offsets count UTF-16 units; they differ on emoji.
+    private static func utf16(_ scalars: Int, in text: String) -> Int {
+        let view = text.unicodeScalars
+        return view.index(view.startIndex, offsetBy: min(max(scalars, 0), view.count)).utf16Offset(in: text)
+    }
+
+    private static func scalars(_ utf16: Int, in text: String) -> Int {
+        text.unicodeScalars.distance(from: text.unicodeScalars.startIndex, to: String.Index(utf16Offset: utf16, in: text))
+    }
+
+    /// Where UTF-16 offset `offset` of the original text lands after `found` is applied.
+    private static func moved(_ offset: Int, end: Bool, _ found: [(range: NSRange, tag: String)]) -> Int {
+        var shift = 0
+        for item in found {
+            if offset <= item.range.location { break }
+            let length = (item.tag as NSString).length
+            if offset < NSMaxRange(item.range) { return item.range.location + shift + (end ? length : 0) }
+            shift += length - item.range.length
+        }
+        return offset + shift
     }
 }
 

@@ -16,6 +16,55 @@ final class LayaClientTests: XCTestCase {
         XCTAssertEqual(LayaClient.masked("전화 010-1234-5678, kim@example.com, /Users/somebody/메모.txt"),
                        "전화 [전화번호], [이메일], /Users/[사용자]/메모.txt")
         XCTAssertEqual(LayaClient.masked("주민번호 900101-1234567"), "주민번호 [주민번호]")
+        XCTAssertEqual(LayaClient.masked("생년월일: 1999.03.14, 여권번호 M12345678, 면허번호 11-12-345678-90"),
+                       "생년월일: [생년월일], 여권번호 [여권번호], 면허번호 [면허번호]")
+        XCTAssertEqual(LayaClient.masked("배송지는 서울특별시 강남구 테헤란로 152 입니다, cc @jiho_lee, ssh ubuntu@52.78.12.34"),
+                       "배송지는 [주소] 입니다, cc [계정], ssh ubuntu@[IP주소]")
+        XCTAssertEqual(LayaClient.masked("인증번호 [482913], 카드 5412-34**-****-1234, 입금계좌 110123456789"),
+                       "인증번호 [[비밀값]], 카드 [카드번호], 입금계좌 [계좌번호]")
+        // mask.py uses [토큰] only for JWTs, which the jwt rule takes before bearer.
+        XCTAssertEqual(LayaClient.masked("Authorization: Bearer abcDEF123ghiJKL456mnoPQR789"), "Authorization: Bearer [비밀값]")
+        let path = LayaClient.masked("/Users/x/Documents/주민등록번호 9001011234567 사본.pdf".decomposedStringWithCanonicalMapping)
+        XCTAssertEqual(Array(path.unicodeScalars), Array("/Users/[사용자]/Documents/주민등록번호 [주민번호] 사본.pdf".unicodeScalars))
+    }
+
+    /// macOS hands back decomposed file names; training records are composed like the app's, and their spans follow.
+    func testMaskedTrainingRecordComposesDecomposedHangul() throws {
+        let raw = "진료 010-1234-5678 우울증".decomposedStringWithCanonicalMapping
+        let end = raw.unicodeScalars.count, start = end - "우울증".decomposedStringWithCanonicalMapping.unicodeScalars.count
+        let out = LayaClient.maskedTrainingRecord(["text": raw, "evidence_spans": [["field": "text", "start": start, "end": end]]])
+        let text = try XCTUnwrap(out["text"] as? String)
+        XCTAssertEqual(Array(text.unicodeScalars), Array("진료 [전화번호] 우울증".unicodeScalars))
+        let span = try XCTUnwrap((out["evidence_spans"] as? [[String: Any]])?.first)
+        XCTAssertEqual([span["start"] as? Int, span["end"] as? Int], [10, 13])
+        XCTAssertEqual(span["text"] as? String, "우울증")
+    }
+
+    /// A new masker rule without a placeholder here would reach v4 as [식별번호], which it learned only for foreign IDs.
+    func testEveryKoreanAndContactRuleHasATrainingPlaceholder() {
+        let foreignIDs: Set = ["us-ssn", "cn-ric", "jp-mynumber", "in-aadhaar", "in-pan", "hk-hkid", "tw-id", "sg-nric", "ca-sin", "mx-curp",
+                               "br-cpf", "gb-nino", "fr-nir", "it-cf", "es-dni", "de-idnr", "pl-pesel", "se-pnr", "au-tfn", "nl-bsn"]
+        let untagged = Set(PIIMasker.rules.map(\.name)).subtracting(LayaClient.tags.keys).subtracting(foreignIDs)
+        XCTAssertEqual(untagged, [])
+    }
+
+    /// Training records are masked like the app's records, and evidence offsets (Python scalar counts) follow the masked text.
+    func testMaskedTrainingRecordMovesEvidenceSpans() throws {
+        let record: [String: Any] = [
+            "label": "SENSITIVE", "window_title": "진료 kim@example.com",
+            "text": "😀 연락 010-1234-5678 우울증 진단",
+            "evidence_spans": [["field": "text", "start": 19, "end": 25, "text": "우울증 진단"],
+                               ["field": "text", "start": 5, "end": 22, "text": "010-1234-5678 우울증"],
+                               ["field": "text", "start": 9, "end": 22, "text": "1234-5678 우울증"],
+                               ["field": "window_title", "start": 0, "end": 2, "text": "진료"]],
+        ]
+        let out = LayaClient.maskedTrainingRecord(record)
+        XCTAssertEqual(out["label"] as? String, "SENSITIVE")
+        XCTAssertEqual(out["window_title"] as? String, "진료 [이메일]")
+        XCTAssertEqual(out["text"] as? String, "😀 연락 [전화번호] 우울증 진단")
+        let spans = try XCTUnwrap(out["evidence_spans"] as? [[String: Any]]).map { [$0["start"] as? Int, $0["end"] as? Int] as [Int?] }
+        XCTAssertEqual(spans, [[12, 18], [5, 15], [5, 15], [0, 2]])
+        XCTAssertEqual((out["evidence_spans"] as? [[String: Any]])?[1]["text"] as? String, "[전화번호] 우울증")
     }
 
     func testSendsTrainingShapedRecordsAndReadsScores() async throws {

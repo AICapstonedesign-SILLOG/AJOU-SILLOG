@@ -60,6 +60,8 @@ sillogctl [--db PATH] <command>
   erase-node 종류 키 [--yes]            노드 하나를 하위 노드·원시 기록까지 지운다 (종류: Session, Resource, App, Topic …. 기본은 세기만)
   weekly-review                          정리 제안(하루 한 번)을 만들어 보여 준다 (반영하지 않음. LLM 호출 2번)
   rejudge ID [ID…] [--laya]             배치들의 행을 지금 규칙으로 다시 판정해 기록을 바꾸고 세션을 다시 계산한다 (카드는 연결된 것을 쓴다. 앱을 끄고 실행)
+  mask IN.jsonl OUT.jsonl               Laya 학습·평가 기록(JSONL)의 제목·주소·경로·본문을 앱이 Laya 에 보낼 때와 똑같이 가린다.
+                                        evidence_spans 의 위치도 가린 글에 맞춰 옮긴다 (DB 를 열지 않음)
   gold-candidates --from YYYY-MM-DD [--to YYYY-MM-DD] [--limit N] [--model M] [--reasoning high] [--out FILE]
                                         정답 세트 재료: 그 기간 배치의 행을 앱과 같은 방식으로 다시 만들어 판정만 받고(기록 안 함),
                                         지금 판정과 행마다 비교해 쓴다 (기본: 데이터 폴더/eval/gold-candidates.json)
@@ -121,6 +123,32 @@ func fail(_ message: String) -> Never {
 let dbPath = option("--db") ?? SillogDatabase.defaultPath()
 guard let command = args.first else { print(usage); exit(0) }
 args.removeFirst()
+
+// Masking files needs no database, so it runs before the real one is opened.
+if command == "mask" {
+    guard args.count == 2 else { fail("사용법: sillogctl mask IN.jsonl OUT.jsonl") }
+    do {
+        var lines: [String] = []
+        // Split on \n alone, as JSON strings may hold U+2028; a CRLF's \r is JSON whitespace.
+        let input = try String(contentsOfFile: args[0], encoding: .utf8).unicodeScalars.split(separator: "\n", omittingEmptySubsequences: false)
+        for (index, scalars) in input.enumerated() {
+            let line = String(Substring(scalars))
+            if line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { continue }
+            do {
+                guard let record = try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any] else { fail("\(index + 1)번째 줄이 JSON 객체가 아님") }
+                let data = try JSONSerialization.data(withJSONObject: LayaClient.maskedTrainingRecord(record), options: [.sortedKeys, .withoutEscapingSlashes])
+                lines.append(String(decoding: data, as: UTF8.self))
+            } catch {
+                fail("\(index + 1)번째 줄을 읽지 못함: \(error.localizedDescription)")
+            }
+        }
+        try (lines.joined(separator: "\n") + "\n").write(toFile: args[1], atomically: true, encoding: .utf8)
+        print("기록 \(lines.count)개를 가려 \(args[1]) 에 씀")
+    } catch {
+        fail("가리지 못함: \(error)")
+    }
+    exit(0)
+}
 
 let db: SillogDatabase
 do {
