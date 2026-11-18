@@ -149,6 +149,33 @@ final class LayaClientTests: XCTestCase {
         XCTAssertEqual(sent["capture_source"] as? String, "ocr")
     }
 
+    func testEvaluationRecordsKeepOneMaskedRecordPerScreen() async throws {
+        let db = try SillogDatabase.inMemory()
+        let store = EventStore(db)
+        let clinicText = "정신건강의학과 재진 예약이 확정되었습니다. 변경은 010-1234-5678 로 연락 주세요. 감사합니다."
+        func row(_ ts: Double, _ bundle: String, _ app: String, _ title: String, text: String?, source: String = "ax") throws -> Int64 {
+            let id = try store.insert(Observation(ts: ts, trigger: text == nil ? "periodic" : "app_activate", appBundle: bundle, appName: app, windowTitle: title))
+            if let text { try store.attach(observationId: id, textId: try store.upsertText(text, source: source, at: ts), screenshotPath: nil) }
+            return id
+        }
+        let first = try row(100, "com.google.Chrome", "Google Chrome", "진료 예약", text: clinicText)
+        // The same screen again after since must not count as new.
+        _ = try row(250, "com.google.Chrome", "Google Chrome", "진료 예약", text: clinicText)
+        _ = try row(160, "com.google.Chrome", "Google Chrome", "진료 예약", text: nil)
+        let terminal = try row(200, "com.apple.Terminal", "Terminal", "npm run dev",
+                               text: "npm run dev 로 개발 서버를 띄우고 localhost 3000 포트에서 화면을 확인하는 중입니다.", source: "ocr")
+        _ = try row(300, "com.apple.Notes", "메모", "장보기", text: "우유, 계란")
+
+        let all = try await db.writer.read { try LayaClient.evaluationRecords($0) }
+        let later = try await db.writer.read { try LayaClient.evaluationRecords($0, since: 150) }
+
+        XCTAssertEqual(all.map(\.observationId), [first, terminal])
+        XCTAssertEqual(all[0].record.text, "정신건강의학과 재진 예약이 확정되었습니다. 변경은 [전화번호] 로 연락 주세요. 감사합니다.")
+        XCTAssertEqual([all[0].record.appKind, all[0].record.captureSource], ["browser", "ax"])
+        XCTAssertEqual([all[1].record.appKind, all[1].record.captureSource], ["application", "ocr"])
+        XCTAssertEqual(later.map(\.observationId), [terminal])
+    }
+
     func testUnreachableServerKeepsTheRowsForTheNextBatch() async throws {
         let db = try SillogDatabase.inMemory()
         _ = try EventStore(db).insert(Observation(ts: 100, trigger: "app_activate", appBundle: "com.apple.Terminal", appName: "Terminal", windowTitle: "npm run dev"))

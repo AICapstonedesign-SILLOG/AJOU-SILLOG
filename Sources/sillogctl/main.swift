@@ -62,6 +62,10 @@ sillogctl [--db PATH] <command>
   rejudge ID [ID…] [--laya]             배치들의 행을 지금 규칙으로 다시 판정해 기록을 바꾸고 세션을 다시 계산한다 (카드는 연결된 것을 쓴다. 앱을 끄고 실행)
   mask IN.jsonl OUT.jsonl               Laya 학습·평가 기록(JSONL)의 제목·주소·경로·본문을 앱이 Laya 에 보낼 때와 똑같이 가린다.
                                         evidence_spans 의 위치도 가린 글에 맞춰 옮긴다 (DB 를 열지 않음)
+  export-laya OUT.jsonl --prefix 이름 [--since UNIX초]
+                                        Laya 평가용으로 글이 40자 이상인 화면을 겹치지 않게 한 줄씩, 앱이 Laya 에 보낼 때처럼 가려서 쓴다.
+                                        DB 를 읽기 전용으로 열어 바꾸지 않는다. id 는 "이름-행번호" 라 이름은 DB 마다 달라야 한다.
+                                        --since 전에 한 번이라도 나온 화면은 뺀다. 이미 가렸으므로 다시 mask 하지 않는다
   gold-candidates --from YYYY-MM-DD [--to YYYY-MM-DD] [--limit N] [--model M] [--reasoning high] [--out FILE]
                                         정답 세트 재료: 그 기간 배치의 행을 앱과 같은 방식으로 다시 만들어 판정만 받고(기록 안 함),
                                         지금 판정과 행마다 비교해 쓴다 (기본: 데이터 폴더/eval/gold-candidates.json)
@@ -146,6 +150,46 @@ if command == "mask" {
         print("기록 \(lines.count)개를 가려 \(args[1]) 에 씀")
     } catch {
         fail("가리지 못함: \(error)")
+    }
+    exit(0)
+}
+
+// Opened read-only before the migrating open below, so a teammate can export straight from the app's own file.
+if command == "export-laya" {
+    var since = 0.0
+    if let text = option("--since") {
+        guard let value = Double(text) else { fail("--since 는 Unix 초로 준다: \(text)") }
+        since = value
+    }
+    // Files from several people are merged by id, so a shared default prefix would collide; a non-.jsonl OUT could be a database.
+    guard let prefix = option("--prefix"), !prefix.isEmpty, args.count == 1, args[0].hasSuffix(".jsonl") else {
+        fail("사용법: sillogctl [--db PATH] export-laya OUT.jsonl --prefix 이름 [--since UNIX초]  (이름은 DB 마다 달라야 합친 id 가 겹치지 않음)")
+    }
+    print("DB 를 읽기 전용으로 열어 화면을 가리는 중 (한 달치에 5분쯤 걸림)")
+    do {
+        var config = Configuration()
+        config.readonly = true
+        let records: [(observationId: Int64, ts: Double, appBundle: String, record: LayaClient.Record)]
+        do {
+            records = try DatabaseQueue(path: dbPath, configuration: config).read { try LayaClient.evaluationRecords($0, since: since) }
+        } catch let error as DatabaseError where error.resultCode == .SQLITE_CANTOPEN && !FileManager.default.fileExists(atPath: dbPath + "-wal") {
+            // A closed app leaves no -shm, which a read-only connection cannot create; with no -wal either, the main file holds everything.
+            let uri = URL(fileURLWithPath: dbPath).absoluteString + "?immutable=1"
+            records = try DatabaseQueue(path: uri, configuration: config).read { try LayaClient.evaluationRecords($0, since: since) }
+        }
+        var lines: [String] = []
+        for item in records {
+            guard var line = try JSONSerialization.jsonObject(with: JSONEncoder().encode(item.record)) as? [String: Any] else { fail("기록을 JSON 으로 만들지 못함") }
+            line["id"] = "\(prefix)-\(item.observationId)"
+            line["obs_id"] = item.observationId
+            line["observed_at"] = item.ts
+            line["app_bundle"] = item.appBundle
+            lines.append(String(decoding: try JSONSerialization.data(withJSONObject: line, options: [.sortedKeys, .withoutEscapingSlashes]), as: UTF8.self))
+        }
+        try lines.map { $0 + "\n" }.joined().write(toFile: args[0], atomically: true, encoding: .utf8)
+        print("화면 기록 \(lines.count)개를 가려 \(args[0]) 에 씀")
+    } catch {
+        fail("내보내지 못함 (\(dbPath)): \(error)")
     }
     exit(0)
 }

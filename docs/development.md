@@ -62,6 +62,7 @@ python3 scripts/laya/serve.py       # 처음 실행 때 모델을 받아 Hugging
 - 질문 문구는 `scripts/laya/questions.json`이고 학습 때와 같습니다.
 - 앱은 식별자를 v4 학습 마스커와 같은 한국어 자리표시자(`[전화번호]`, `[주민번호]` 등)로 가린 뒤 보냅니다. 찾는 규칙은 외부 모델에 보낼 때와 같은 `PIIMasker`이고, 규칙 이름을 자리표시자로 바꾸는 표는 `LayaClient.tags`입니다.
 - 새로 학습하거나 평가할 기록은 `sillogctl mask IN.jsonl OUT.jsonl`로 가립니다. 앱이 Laya에 보낼 때와 똑같이 가리고 `evidence_spans` 위치도 옮기므로, 학습 입력과 앱 입력이 어긋나지 않습니다. v4는 예전 학습 마스커(`mask.py` v3c)로 가린 기록으로 학습했습니다.
+- 평가 기록은 각자 자기 Mac에서 `sillogctl [--db PATH] export-laya OUT.jsonl --prefix 이름`으로 뽑습니다. DB를 읽기 전용으로 열고, 글이 40자 이상인 화면을 겹치지 않게 한 줄씩 앱과 똑같이 가려 씁니다. 여러 사람의 파일을 id(`이름-행번호`)로 합치므로 이름은 DB마다 달라야 합니다. 이름 가리기는 명령을 실행한 Mac의 계정 이름을 쓰므로 다른 사람 DB를 가져와 돌리면 그 사람 이름이 남습니다. 오픈소스 SILLOG 앱의 DB는 `~/Library/Application Support/Sillog/sillog.sqlite`입니다. v4는 2026-10-13 16:36까지의 개발자 기록으로 학습했으므로, 그 DB에서는 `--since 1791876988.13`을 줍니다. 그 시각 전에 한 번이라도 나온 화면은 뒤에 다시 나와도 빠집니다. 출력은 `.jsonl`이어야 하고, `*.jsonl`은 git이 무시합니다.
 - CPU에서 기록 하나에 약 1초 걸립니다. `--device mps`는 macOS 27 + torch 2.10에서 첫 요청에 멈춰 기본값이 아닙니다.
 - 판정한 관측 행은 `observations.sensitive = 1`로 남고 채팅 검색(`ContextSearch`)에서 빠집니다. AI 도구 대화와 녹음은 판정하지 않습니다.
 

@@ -121,6 +121,28 @@ public struct LayaClient: Sendable {
         return Set(recordOf.filter { scores[$0.value] >= Self.threshold }.keys)
     }
 
+    /// Args: conn reads an app database; since keeps only screens first shown after that Unix time.
+    /// Returns: one masked record per distinct screen with at least 40 characters of text, oldest first,
+    ///   each with the first row that showed it.
+    /// Raises: DatabaseError when conn is not an app database.
+    public static func evaluationRecords(_ conn: Database, since: Double = 0) throws -> [(observationId: Int64, ts: Double, appBundle: String, record: Record)] {
+        // First-schema columns only so older app databases read too; text-less periodic rows repeat a screen; v4's real records used the same 40-character floor.
+        let rows = try Row.fetchCursor(conn, sql: """
+            SELECT o.id, o.ts, o.app_bundle, o.app_name, o.window_title, o.url, o.doc_path, o.text_id, t.source, t.text
+            FROM observations o JOIN text_snapshots t ON t.id = o.text_id
+            WHERE length(t.text) >= 40 ORDER BY o.ts, o.id
+            """)
+        var out: [(observationId: Int64, ts: Double, appBundle: String, record: Record)] = [], seen = Set<Record>()
+        while let row = try rows.next() {
+            let o = Observation(id: row["id"], ts: row["ts"], trigger: "", appBundle: row["app_bundle"], appName: row["app_name"],
+                                windowTitle: row["window_title"], url: row["url"], docPath: row["doc_path"], textId: row["text_id"])
+            let record = Record(o, source: row["source"], text: row["text"])
+            // Earlier rows still fill seen, so a screen v4 may have trained on stays out when it is shown again after since.
+            if seen.insert(record).inserted, o.ts > since { out.append((o.id ?? 0, o.ts, o.appBundle, record)) }
+        }
+        return out
+    }
+
     /// Set from the app setting. On, chat search serves only screen rows a batch has scored.
     nonisolated(unsafe) public static var enabled = false
 
