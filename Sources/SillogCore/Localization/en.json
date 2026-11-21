@@ -1808,5 +1808,6 @@
   "동의하고 정리 (%@일)": "Agree and clean up (%@ days)",
   "정리 (%@일)": "Clean up (%@ days)",
   "%@ %@건": "%@ %@",
-  "판단 모델 밑에 키를 넣어 주세요": "Add the key under the judging model"
+  "판단 모델 밑에 키를 넣어 주세요": "Add the key under the judging model",
+  "최근 14일 작업한 시간대 (0시~24시)": "Hours worked over the last 14 days (0:00 to 24:00)"
 }
