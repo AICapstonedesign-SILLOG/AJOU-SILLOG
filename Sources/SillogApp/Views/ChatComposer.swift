@@ -58,7 +58,7 @@ struct ChatComposer: View {
         VStack(alignment: .leading, spacing: 0) {
             box
             HStack(spacing: 0) {
-                skillChips.padding(.leading, 12)
+                skillChips
                 Spacer(minLength: 8)
                 if !modelName.isEmpty { connectionButton.padding(.trailing, 12) }
             }
